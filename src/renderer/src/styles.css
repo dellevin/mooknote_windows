@@ -1,0 +1,296 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  font-family:
+    'Segoe UI', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+}
+
+/* 全局禁止文本选中/复制（应用外壳不提供网页式选择），
+   输入控件内恢复，保证编辑笔记时的光标选择与复制正常 */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+input,
+textarea,
+[contenteditable='true'],
+[contenteditable=''] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* naive-ui 的 NConfigProvider 会在 #app 与应用根之间插入一层包装 div，
+   必须让它也撑满高度，否则 .app-root 的 height:100% 会塌缩成内容高 */
+#app > div {
+  height: 100%;
+}
+
+:root {
+  --titlebar-height: 32px;
+  /* Fluent 动效令牌：统一一条减速曲线，三档时长 */
+  --fluent-ease: cubic-bezier(0.1, 0.9, 0.2, 1);
+  --d1: 100ms;
+  --d2: 200ms;
+  --d3: 250ms;
+  /* 黑白极简强调色（固定近黑，不跟随系统） */
+  --accent: #1f2329;
+  --fluent-card: rgba(255, 255, 255, 0.85);
+  --fluent-stroke: rgba(17, 17, 17, 0.06);
+  --fluent-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+}
+
+.app-titlebar {
+  height: var(--titlebar-height);
+  display: flex;
+  align-items: stretch;
+  /* 右侧 138px（3×46）留给系统原生标题按钮覆盖层 */
+  padding-right: 138px;
+  -webkit-app-region: drag;
+  user-select: none;
+  flex: 0 0 auto;
+  color: #1b1b1b;
+}
+
+.app-titlebar .tb-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.7);
+  letter-spacing: 0.2px;
+}
+
+/* 中部可拖拽空白区，占满标题栏剩余宽度 */
+.app-titlebar .tb-drag {
+  flex: 1;
+  -webkit-app-region: drag;
+}
+
+/* ============ Phase 2：Fluent 控件与表面语言 ============ */
+
+body {
+  font-family:
+    'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei',
+    system-ui, sans-serif;
+}
+
+/* 弹窗卡片：Acrylic 半透明 + 细描边 + Win11 大投影 + 8px 圆角。
+   统一覆盖各组件内 .editor/.picker/.box/.detail-card */
+.editor,
+.picker,
+.box,
+.detail-card,
+.form-card {
+  background: var(--fluent-card) !important;
+  backdrop-filter: blur(32px) saturate(1.4);
+  -webkit-backdrop-filter: blur(32px) saturate(1.4);
+  border: 1px solid var(--fluent-stroke) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--fluent-shadow);
+}
+
+/* 接管 naive 弹窗自带的 fade-in-scale-up 过渡：进入与退出都用统一 Fluent 曲线。
+   注意不能再给卡片加 fill:both 的入场动画——那会锁定 opacity/transform，
+   导致关闭时卡片不随遮罩一起淡出而被瞬间卸载。 */
+.n-modal-body-wrapper .n-modal.fade-in-scale-up-transition-enter-active,
+.n-modal-body-wrapper .n-modal.fade-in-scale-up-transition-leave-active {
+  transition:
+    opacity var(--d2) var(--fluent-ease),
+    transform var(--d2) var(--fluent-ease);
+}
+.n-modal-body-wrapper .n-modal.fade-in-scale-up-transition-enter-from,
+.n-modal-body-wrapper .n-modal.fade-in-scale-up-transition-leave-to {
+  opacity: 0;
+  transform: scale(0.96) translateY(6px);
+}
+.n-modal-body-wrapper .n-modal.fade-in-scale-up-transition-leave-from,
+.n-modal-body-wrapper .n-modal.fade-in-scale-up-transition-enter-to {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+}
+
+/* naive 下拉/选择/日期/颜色等浮层表面：圆角、细描边、Acrylic */
+.n-base-select-menu,
+.n-dropdown-menu,
+.n-popover.n-base-popover,
+.n-tooltip,
+.n-date-panel,
+.n-time-panel,
+.n-color-picker-panel,
+.n-cascader-menu,
+.n-auto-complete-menu {
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+.n-base-select-menu .n-base-select-option,
+.n-dropdown-menu .n-dropdown-option {
+  border-radius: 4px;
+}
+
+/* 键盘焦点：2px 强调色描边（仅键盘，鼠标点击不显示） */
+.n-button:focus-visible,
+.n-base-selection:focus-visible,
+.n-input:focus-visible,
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 路由切换：轻微上移淡入，统一 Fluent 曲线 */
+.route-enter-active {
+  transition:
+    opacity var(--d2) var(--fluent-ease),
+    transform var(--d2) var(--fluent-ease);
+}
+.route-leave-active {
+  transition: opacity var(--d1) var(--fluent-ease);
+}
+.route-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.route-leave-to {
+  opacity: 0;
+}
+
+/* 按钮按压反馈（naive 自带颜色变化，这里补一个极轻缩放） */
+.n-button {
+  transition:
+    background-color var(--d1) var(--fluent-ease),
+    border-color var(--d1) var(--fluent-ease),
+    transform 80ms var(--fluent-ease);
+}
+.n-button:active .n-button__content {
+  transform: scale(0.97);
+}
+.n-button .n-button__content {
+  transition: transform 80ms var(--fluent-ease);
+}
+
+/* 本地图片淡入 */
+img[src^='mookimg:'] {
+  animation: img-fade var(--d2) ease both;
+}
+@keyframes img-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 右下角大号圆角浮动添加按钮（影视/书籍/游戏列表页共用） */
+.fab-add {
+  position: fixed;
+  /* 右下角最右为全局搜索按钮（58px），添加按钮排在其左侧 */
+  right: 100px;
+  bottom: 26px;
+  width: 58px;
+  height: 58px;
+  border-radius: 19px;
+  border: none;
+  cursor: pointer;
+  background: #1f2329;
+  color: #fff;
+  font-size: 32px;
+  font-weight: 300;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+  z-index: 900;
+  transition:
+    transform 0.14s var(--fluent-ease),
+    background-color 0.14s var(--fluent-ease),
+    box-shadow 0.14s var(--fluent-ease);
+}
+.fab-add:hover {
+  background: #000;
+  transform: translateY(-2px) scale(1.04);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32);
+}
+.fab-add:active {
+  transform: scale(0.95);
+}
+.fab-add.fab-movie {
+  background: #3b5bff;
+}
+.fab-add.fab-movie:hover {
+  background: #2f49d6;
+}
+.fab-add.fab-book {
+  background: #16a34a;
+}
+.fab-add.fab-book:hover {
+  background: #128a3f;
+}
+.fab-add.fab-game {
+  background: #ea580c;
+}
+.fab-add.fab-game:hover {
+  background: #cc4d0a;
+}
+
+/* 列表多选模式：底部居中的悬浮操作条（全选 / 已选数 / 删除 / 取消） */
+.select-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 999px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+  z-index: 900;
+}
+.select-bar .sel-count {
+  font-size: 13px;
+  color: #1f2329;
+  font-weight: 600;
+  min-width: 46px;
+  text-align: center;
+}
+
+/* Win11 叠加式细滚动条（全局，悬停才显色） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0) transparent;
+}
+*:hover {
+  scrollbar-color: rgba(0, 0, 0, 0.28) transparent;
+}
+*::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 999px;
+  border: 4px solid transparent;
+  background-clip: content-box;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.22);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.38);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
