@@ -638,3 +638,25 @@ export interface SyncOutcome {
   stats?: Record<string, number>
   imageFailures?: number
 }
+
+// ========== 增量同步（inc2） ==========
+export interface IncSyncProgress {
+  stage: string
+  message: string
+  upRecords: number
+  downRecords: number
+  upImages: number
+  downImages: number
+  dedupImages: number
+}
+
+export interface IncSyncResult {
+  success: boolean
+  message: string
+  uploadedRecords: number
+  downloadedRecords: number
+  uploadedImages: number
+  downloadedImages: number
+  dedupImages: number
+  needReload: boolean
+}

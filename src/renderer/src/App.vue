@@ -168,6 +168,16 @@ watch(
 const nickname = ref('')
 const motto = ref('')
 const avatarUrl = ref('')
+const isMaximized = ref(false)
+function winMinimize(): void {
+  window.mook.window.minimize()
+}
+function winToggleMax(): void {
+  window.mook.window.toggleMaximize()
+}
+function winClose(): void {
+  window.mook.window.close()
+}
 
 onMounted(async () => {
   await loadCustomModules()
@@ -185,6 +195,7 @@ onMounted(async () => {
   // 黑白极简：强调色固定，写到 :root 供 teleport 弹层使用
   document.documentElement.style.setProperty('--accent', accent.value)
   window.addEventListener('custom-modules-changed', onModulesChanged)
+  window.mook.window.onMaximizedChange((v) => (isMaximized.value = v))
 })
 
 onBeforeUnmount(() => {
@@ -230,13 +241,34 @@ function onRailPointerUp(): void {
           :class="`mat-${material}`"
           :style="{ '--accent': accent }"
         >
-          <!-- 右上最小化/最大化/关闭由系统原生标题按钮覆盖层绘制（含 Snap Layouts），
-               这里仅保留可拖拽标题区并在右侧留出按钮位 -->
+          <!-- 自定义标题栏：左侧品牌标识 + 可拖拽区，右侧自绘最小化/最大化/关闭 -->
           <div class="app-titlebar">
             <div class="tb-left">
+              <span class="tb-mark">M</span>
               <span class="tb-title">MookNote</span>
             </div>
             <div class="tb-drag"></div>
+            <div class="tb-controls">
+              <button class="tb-btn" title="最小化" @click="winMinimize">
+                <svg viewBox="0 0 12 12" width="12" height="12">
+                  <rect x="2" y="5.5" width="8" height="1" rx="0.5" fill="currentColor" />
+                </svg>
+              </button>
+              <button class="tb-btn" title="最大化/还原" @click="winToggleMax">
+                <svg v-if="!isMaximized" viewBox="0 0 12 12" width="12" height="12">
+                  <rect x="2.5" y="2.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1" />
+                </svg>
+                <svg v-else viewBox="0 0 12 12" width="12" height="12">
+                  <rect x="3.5" y="2" width="6.5" height="6.5" rx="1" fill="none" stroke="currentColor" stroke-width="1" />
+                  <path d="M5 2.5V4H2.5v5.5H7V8" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round" />
+                </svg>
+              </button>
+              <button class="tb-btn tb-close" title="关闭" @click="winClose">
+                <svg viewBox="0 0 12 12" width="12" height="12">
+                  <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           <div class="app-body">
@@ -333,7 +365,55 @@ function onRailPointerUp(): void {
   align-items: center;
   gap: 8px;
   height: 100%;
-  padding-left: 12px;
+  padding: 0 10px 0 14px;
+  -webkit-app-region: drag;
+}
+.tb-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: #1f2329;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.tb-controls {
+  display: flex;
+  align-items: stretch;
+  -webkit-app-region: no-drag;
+}
+.tb-btn {
+  width: 44px;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #5b616c;
+  cursor: pointer;
+  transition:
+    background-color 0.12s,
+    color 0.12s;
+}
+.tb-btn:hover {
+  background: rgba(0, 0, 0, 0.07);
+  color: #1f2329;
+}
+.tb-btn:active {
+  background: rgba(0, 0, 0, 0.12);
+}
+.tb-btn.tb-close:hover {
+  background: #e81123;
+  color: #fff;
+}
+.tb-btn.tb-close:active {
+  background: #c40f1e;
 }
 
 .app-body {

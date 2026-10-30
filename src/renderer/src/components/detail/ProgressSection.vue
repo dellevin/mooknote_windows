@@ -16,7 +16,8 @@ import {
   NImage,
   NImageGroup,
   NPopconfirm,
-  useMessage
+  useMessage,
+  useDialog
 } from 'naive-ui'
 import type { ProgressEntry, ProgressKind } from '@shared/types'
 import { toImgUrl, isoToTs, tsToIso, formatDate, plain } from '@/utils/image'
@@ -29,11 +30,55 @@ const props = defineProps<{
 }>()
 
 const message = useMessage()
+const dialog = useDialog()
 const entries = ref<ProgressEntry[]>([])
 const loading = ref(false)
 const picking = ref(false)
 
 const doneCount = computed(() => entries.value.filter((e) => e.done).length)
+
+// 多选批量删除
+const selectMode = ref(false)
+const selectedIds = ref<Set<string>>(new Set())
+const allSelected = computed(
+  () => entries.value.length > 0 && selectedIds.value.size === entries.value.length
+)
+function enterSelect(): void {
+  selectMode.value = true
+  selectedIds.value = new Set()
+}
+function exitSelect(): void {
+  selectMode.value = false
+  selectedIds.value = new Set()
+}
+function toggleSelect(id: string): void {
+  const next = new Set(selectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedIds.value = next
+}
+function toggleSelectAll(): void {
+  selectedIds.value = allSelected.value
+    ? new Set()
+    : new Set(entries.value.map((e) => e.id))
+}
+function batchRemove(): void {
+  const n = selectedIds.value.size
+  if (!n) return
+  dialog.warning({
+    title: '批量删除',
+    content: `确定删除选中的 ${n} 条${props.title}吗？删除后不可恢复。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      await Promise.all(
+        [...selectedIds.value].map((id) => window.mook.progress.remove(props.kind, id))
+      )
+      exitSelect()
+      await load()
+    }
+  })
+}
 
 async function load(): Promise<void> {
   loading.value = true
@@ -138,18 +183,52 @@ async function remove(e: ProgressEntry): Promise<void> {
       <span class="section-title">
         {{ title }}（{{ doneCount }}/{{ entries.length }}）
       </span>
-      <NButton size="tiny" type="primary" ghost @click="openAdd">＋ 添加{{ noLabel }}</NButton>
+      <div class="head-actions">
+        <template v-if="selectMode">
+          <NButton size="tiny" quaternary @click="toggleSelectAll">
+            {{ allSelected ? '取消全选' : '全选' }}
+          </NButton>
+          <NButton
+            size="tiny"
+            type="error"
+            ghost
+            :disabled="!selectedIds.size"
+            @click="batchRemove"
+          >
+            删除<span v-if="selectedIds.size">（{{ selectedIds.size }}）</span>
+          </NButton>
+          <NButton size="tiny" quaternary @click="exitSelect">完成</NButton>
+        </template>
+        <template v-else>
+          <NButton size="tiny" quaternary :disabled="!entries.length" @click="enterSelect">
+            多选
+          </NButton>
+          <NButton size="tiny" type="primary" ghost @click="openAdd">＋ 添加{{ noLabel }}</NButton>
+        </template>
+      </div>
     </div>
 
     <NSpin :show="loading">
       <NEmpty v-if="!entries.length && !loading" :description="`还没有${title}记录`" size="small" />
       <div v-else class="list">
-        <div v-for="e in entries" :key="e.id" class="row" :class="{ done: e.done }">
-          <NCheckbox :checked="e.done" @update:checked="(v: boolean) => toggle(e, v)">
+        <div
+          v-for="e in entries"
+          :key="e.id"
+          class="row"
+          :class="{ done: e.done, picked: selectMode && selectedIds.has(e.id) }"
+          @click="selectMode ? toggleSelect(e.id) : undefined"
+        >
+          <NCheckbox
+            v-if="selectMode"
+            class="pick-box"
+            :checked="selectedIds.has(e.id)"
+            @update:checked="() => toggleSelect(e.id)"
+          />
+          <NCheckbox :checked="e.done" :disabled="selectMode" @update:checked="(v: boolean) => toggle(e, v)">
             <span class="no">{{ noLabel }} {{ e.no }}</span>
             <span v-if="e.title" class="t">{{ e.title }}</span>
           </NCheckbox>
-          <div class="right">
+          <div v-if="!selectMode" class="right">
             <NRate
               v-if="e.rating != null"
               :value="e.rating"
@@ -160,7 +239,7 @@ async function remove(e: ProgressEntry): Promise<void> {
             />
             <span class="date">{{ formatDate(e.date) }}</span>
             <NButton size="tiny" quaternary @click="openEdit(e)">编辑</NButton>
-            <NPopconfirm @positive-click="remove(e)">
+            <NPopconfirm to="body" @positive-click="remove(e)">
               <template #trigger>
                 <NButton size="tiny" quaternary type="error">删</NButton>
               </template>
@@ -247,6 +326,11 @@ async function remove(e: ProgressEntry): Promise<void> {
   justify-content: space-between;
   margin-bottom: 12px;
 }
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .list {
   display: flex;
   flex-direction: column;
@@ -255,8 +339,16 @@ async function remove(e: ProgressEntry): Promise<void> {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 8px 4px;
   border-bottom: 1px solid #f2f3f6;
+  border-radius: 8px;
+}
+.row.picked {
+  background: color-mix(in srgb, var(--accent) 6%, #fff);
+}
+.pick-box {
+  flex-shrink: 0;
 }
 .row.done .t,
 .row.done .no {

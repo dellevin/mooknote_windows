@@ -49,7 +49,9 @@ import type {
   SyncOutcome,
   Tag,
   TagType,
-  TagDeleteMode
+  TagDeleteMode,
+  IncSyncResult,
+  IncSyncProgress
 } from '../shared/types'
 
 interface MediaQuery {
@@ -86,13 +88,29 @@ const api = {
     count: (table: string): Promise<number> => ipcRenderer.invoke('db:count', table),
     rows: (
       table: string,
-      limit?: number
+      limit?: number,
+      offset?: number
     ): Promise<{
       columns: string[]
       primaryKeys: string[]
+      columnInfo: {
+        name: string
+        type: string
+        notNull: boolean
+        defaultValue: string | null
+        pk: number
+      }[]
       rows: Record<string, unknown>[]
       total: number
     }> => ipcRenderer.invoke('db:rows', table, limit),
+    insert: (
+      table: string,
+      values: Record<string, string | null>
+    ): Promise<number> => ipcRenderer.invoke('db:insert', table, values),
+    deleteRow: (
+      table: string,
+      pk: { name: string; value: unknown }[]
+    ): Promise<number> => ipcRenderer.invoke('db:delete-row', table, pk),
     updateCell: (
       table: string,
       column: string,
@@ -416,7 +434,32 @@ const api = {
       ipcRenderer.on('webdav:download-progress', listener)
       return () => ipcRenderer.removeListener('webdav:download-progress', listener)
     },
+    onUploadProgress: (
+      cb: (p: { received: number; total: number; percent: number; stage: string }) => void
+    ): (() => void) => {
+      const listener = (
+        _e: unknown,
+        p: { received: number; total: number; percent: number; stage: string }
+      ): void => cb(p)
+      ipcRenderer.on('webdav:upload-progress', listener)
+      return () => ipcRenderer.removeListener('webdav:upload-progress', listener)
+    },
     lastSync: (): Promise<string> => ipcRenderer.invoke('webdav:last-sync')
+  },
+  incSync: {
+    upload: (): Promise<IncSyncResult> => ipcRenderer.invoke('inc-sync:upload'),
+    download: (): Promise<IncSyncResult> => ipcRenderer.invoke('inc-sync:download'),
+    restore: (): Promise<IncSyncResult> => ipcRenderer.invoke('inc-sync:restore'),
+    forcePush: (): Promise<IncSyncResult> => ipcRenderer.invoke('inc-sync:force-push'),
+    info: (
+      fetchRemoteVersion?: boolean
+    ): Promise<{ lastSync: string; manifestVersion: number | null }> =>
+      ipcRenderer.invoke('inc-sync:info', fetchRemoteVersion),
+    onProgress: (cb: (p: IncSyncProgress) => void): (() => void) => {
+      const listener = (_e: unknown, p: IncSyncProgress): void => cb(p)
+      ipcRenderer.on('inc-sync:progress', listener)
+      return () => ipcRenderer.removeListener('inc-sync:progress', listener)
+    }
   },
   tag: {
     list: (type?: TagType): Promise<Tag[]> => ipcRenderer.invoke('tag:list', type),
@@ -438,16 +481,20 @@ const api = {
     uuid: (): string => randomUUID()
   },
   maintenance: {
-    clearCache: (): Promise<{ bytes: number }> =>
+    clearCache: (): Promise<{ bytes: number; orphanImages: number; emptyDirs: number }> =>
       ipcRenderer.invoke('maintenance:clear-cache'),
-    cleanImageRefs: (): Promise<{ removed: number }> =>
-      ipcRenderer.invoke('maintenance:clean-image-refs')
+    cleanEmptyDirs: (): Promise<{ removed: number }> =>
+      ipcRenderer.invoke('maintenance:clean-empty-dirs')
   },
   // 无边框窗口控制
   window: {
     minimize: (): void => ipcRenderer.send('win:minimize'),
     toggleMaximize: (): void => ipcRenderer.send('win:toggle-max'),
     close: (): void => ipcRenderer.send('win:close'),
+    onMaximizedChange: (cb: (maximized: boolean) => void): void => {
+      const listener = (_e: unknown, v: boolean): void => cb(v)
+      ipcRenderer.on('win:max-changed', listener)
+    },
     toggleDevTools: (): void => ipcRenderer.send('win:toggle-devtools'),
     setIcon: (src: string | null): Promise<boolean> =>
       ipcRenderer.invoke('win:set-icon', src),

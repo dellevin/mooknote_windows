@@ -54,7 +54,7 @@ async function remove(id: string): Promise<void> {
         <div class="gallery">
           <div v-for="it in items" :key="it.id" class="cell">
             <NImage :src="toImgUrl(it.imagePath)" object-fit="cover" class="img" />
-            <NPopconfirm @positive-click="remove(it.id)">
+            <NPopconfirm to="body" @positive-click="remove(it.id)">
               <template #trigger>
                 <button class="del">✕</button>
               </template>

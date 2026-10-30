@@ -9,6 +9,7 @@ import type {
   PersonLinkWithPerson,
   PersonWork
 } from '../../../shared/types'
+import { recordTombstone } from '../../services/sync/syncTombstones'
 
 interface PersonRow {
   id: string
@@ -146,6 +147,7 @@ class PersonDao {
       db.prepare(`DELETE FROM movie_people WHERE person_id=?`).run(id)
       db.prepare(`DELETE FROM book_people WHERE person_id=?`).run(id)
       db.prepare(`DELETE FROM game_people WHERE person_id=?`).run(id)
+      recordTombstone('people', id)
       db.prepare(`DELETE FROM people WHERE id=?`).run(id)
     })()
   }

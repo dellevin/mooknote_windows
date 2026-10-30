@@ -16,6 +16,13 @@ import type {
   CharacterInput,
   PlaylistInput
 } from '../../shared/types'
+import { touchParent } from '../services/sync/touchParent'
+
+const MEDIA_PARENT_TABLE: Record<MediaKind, string> = {
+  movie: 'movies',
+  book: 'books',
+  game: 'games'
+}
 
 export function registerPeopleIpc(): void {
   // ---- 人物档案 ----
@@ -56,6 +63,8 @@ export function registerPeopleIpc(): void {
     'person-link:replace',
     (_e, kind: MediaKind, workId: string, links: PersonLink[]) => {
       personLinkDao.replaceForWork(kind, workId, links)
+      // 链接表无时间戳，必须 touch 父作品行才能把关联变更推送出去
+      touchParent(MEDIA_PARENT_TABLE[kind], workId)
       return true
     }
   )

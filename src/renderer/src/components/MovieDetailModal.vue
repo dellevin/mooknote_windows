@@ -46,7 +46,8 @@ watch(
   () => [props.show, props.id],
   ([s]) => {
     if (s) void load()
-  }
+  },
+  { immediate: true }
 )
 
 function askDelete(): void {
@@ -71,6 +72,11 @@ const tagFields: { key: 'directors' | 'writers' | 'actors' | 'genres'; label: st
   { key: 'actors', label: '主演' },
   { key: 'genres', label: '类型' }
 ]
+const STATUS_TYPE: Record<string, 'info' | 'success' | 'warning'> = {
+  want_to_watch: 'info',
+  watching: 'success',
+  watched: 'warning'
+}
 </script>
 
 <template>
@@ -80,105 +86,119 @@ const tagFields: { key: 'directors' | 'writers' | 'actors' | 'genres'; label: st
     :auto-focus="false"
   >
     <div class="detail-card">
-      <NSpin :show="loading">
-        <NEmpty v-if="!movie && !loading" description="记录不存在或已删除" />
-        <template v-else-if="movie">
-          <div class="hero">
-            <div class="poster">
-              <img v-if="toImgUrl(movie.posterPath)" :src="toImgUrl(movie.posterPath)" />
-              <div v-else class="poster-empty">无海报</div>
+      <div v-if="loading" class="state">
+        <NSpin size="medium" />
+      </div>
+      <NEmpty v-else-if="!movie" class="state" description="记录不存在或已删除" />
+      <template v-else>
+        <div class="hero" :class="{ 'no-cover': !toImgUrl(movie.posterPath) }">
+          <img
+            v-if="toImgUrl(movie.posterPath)"
+            class="hero-bg"
+            :src="toImgUrl(movie.posterPath)"
+            alt=""
+          />
+          <div class="hero-mask"></div>
+          <div class="poster">
+            <img v-if="toImgUrl(movie.posterPath)" :src="toImgUrl(movie.posterPath)" />
+            <div v-else class="poster-empty">无海报</div>
+          </div>
+          <div class="head-info">
+            <h2 class="title">{{ movie.title }}</h2>
+            <div v-if="movie.alternateTitles.length" class="alt">
+              {{ movie.alternateTitles.join(' / ') }}
             </div>
-            <div class="head-info">
-              <h2 class="title">{{ movie.title }}</h2>
-              <div v-if="movie.alternateTitles.length" class="alt">
-                {{ movie.alternateTitles.join(' / ') }}
-              </div>
-              <div class="badges">
-                <NTag size="small" type="primary" :bordered="false">
-                  {{ MOVIE_STATUS_LABELS[movie.status] }}
-                </NTag>
-                <NTag size="small" :bordered="false">
-                  {{ MOVIE_CATEGORY_LABELS[movie.category] ?? movie.category }}
-                </NTag>
-              </div>
-              <div v-if="movie.rating != null" class="rating-row">
-                <NRate :value="movie.rating" :max="10" allow-half readonly size="small" />
-                <span class="rating-num">{{ movie.rating.toFixed(1) }}</span>
-              </div>
-              <div class="kv">
-                <span v-if="movie.releaseDate">上映：{{ formatDate(movie.releaseDate) }}</span>
-                <span v-if="movie.watchDate">观看：{{ formatDate(movie.watchDate) }}</span>
-                <span v-if="movie.duration">时长：{{ movie.duration }} 分钟</span>
-                <span v-if="movie.watchCount">看过 {{ movie.watchCount }} 次</span>
-              </div>
+            <div class="badges">
+              <NTag size="small" :type="STATUS_TYPE[movie.status]" round :bordered="false">
+                {{ MOVIE_STATUS_LABELS[movie.status] }}
+              </NTag>
+              <NTag size="small" round :bordered="false" class="cat-tag">
+                {{ MOVIE_CATEGORY_LABELS[movie.category] ?? movie.category }}
+              </NTag>
+            </div>
+            <div v-if="movie.rating != null" class="rating-row">
+              <NRate :value="movie.rating" :max="10" allow-half readonly size="small" />
+              <span class="rating-num">{{ movie.rating.toFixed(1) }}</span>
+            </div>
+            <div class="kv">
+              <span v-if="movie.releaseDate" class="chip">
+                <i>上映</i>{{ formatDate(movie.releaseDate) }}
+              </span>
+              <span v-if="movie.watchDate" class="chip">
+                <i>观看</i>{{ formatDate(movie.watchDate) }}
+              </span>
+              <span v-if="movie.duration" class="chip"><i>时长</i>{{ movie.duration }} 分钟</span>
+              <span v-if="movie.watchCount" class="chip">
+                <i>看过</i>{{ movie.watchCount }} 次
+              </span>
             </div>
           </div>
+        </div>
 
-          <div class="body">
-            <NTabs type="line" animated size="small">
-              <NTabPane name="info" tab="资料">
-                <div
-                  v-for="f in tagFields"
-                  :key="f.key"
-                  v-show="movie[f.key].length"
-                  class="tag-row"
-                >
-                  <span class="tag-label">{{ f.label }}</span>
-                  <NSpace :size="6">
-                    <NTag v-for="v in movie[f.key]" :key="v" size="small" :bordered="false">
-                      {{ v }}
-                    </NTag>
-                  </NSpace>
-                </div>
+        <div class="body">
+          <NTabs type="line" animated size="small">
+            <NTabPane name="info" tab="资料">
+              <div
+                v-for="f in tagFields"
+                :key="f.key"
+                v-show="movie[f.key].length"
+                class="tag-row"
+              >
+                <span class="tag-label">{{ f.label }}</span>
+                <NSpace :size="6">
+                  <NTag v-for="v in movie[f.key]" :key="v" size="small" :bordered="false">
+                    {{ v }}
+                  </NTag>
+                </NSpace>
+              </div>
 
-                <div v-if="movie.summary" class="summary">
-                  <div class="section-title">剧情简介</div>
-                  <p>{{ movie.summary }}</p>
-                </div>
-                <NEmpty v-else-if="!movie.summary" description="暂无简介" size="small" />
-              </NTabPane>
+              <div v-if="movie.summary" class="summary">
+                <div class="section-title">剧情简介</div>
+                <p>{{ movie.summary }}</p>
+              </div>
+              <NEmpty v-else-if="!movie.summary" description="暂无简介" size="small" />
+            </NTabPane>
 
-              <NTabPane name="reviews" tab="评价">
-                <ReviewSection :key="'rv-' + movie.id" kind="movie" :parent-id="movie.id" />
-              </NTabPane>
+            <NTabPane name="reviews" tab="评价">
+              <ReviewSection :key="'rv-' + movie.id" kind="movie" :parent-id="movie.id" />
+            </NTabPane>
 
-              <NTabPane name="posters" tab="海报墙">
-                <ImageCollectionSection
-                  :key="'po-' + movie.id"
-                  kind="poster"
-                  :parent-id="movie.id"
-                  title="海报墙"
-                />
-              </NTabPane>
+            <NTabPane name="posters" tab="海报墙">
+              <ImageCollectionSection
+                :key="'po-' + movie.id"
+                kind="poster"
+                :parent-id="movie.id"
+                title="海报墙"
+              />
+            </NTabPane>
 
-              <NTabPane name="episodes" tab="分集">
-                <ProgressSection
-                  :key="'ep-' + movie.id"
-                  kind="episode"
-                  :parent-id="movie.id"
-                  title="分集记录"
-                  no-label="集"
-                />
-              </NTabPane>
+            <NTabPane name="episodes" tab="分集">
+              <ProgressSection
+                :key="'ep-' + movie.id"
+                kind="episode"
+                :parent-id="movie.id"
+                title="分集记录"
+                no-label="集"
+              />
+            </NTabPane>
 
-              <NTabPane name="people" tab="人物">
-                <PeopleSection :key="'pp-' + movie.id" kind="movie" :parent-id="movie.id" />
-              </NTabPane>
+            <NTabPane name="people" tab="人物">
+              <PeopleSection :key="'pp-' + movie.id" kind="movie" :parent-id="movie.id" />
+            </NTabPane>
 
-              <NTabPane name="characters" tab="角色">
-                <CharacterSection :key="'ch-' + movie.id" kind="movie" :parent-id="movie.id" />
-              </NTabPane>
-            </NTabs>
-          </div>
+            <NTabPane name="characters" tab="角色">
+              <CharacterSection :key="'ch-' + movie.id" kind="movie" :parent-id="movie.id" />
+            </NTabPane>
+          </NTabs>
+        </div>
 
-          <div class="footer">
-            <NSpace justify="end">
-              <NButton type="error" quaternary @click="askDelete">删除</NButton>
-              <NButton type="primary" @click="emit('edit', movie.id)">编辑</NButton>
-            </NSpace>
-          </div>
-        </template>
-      </NSpin>
+        <div class="footer">
+          <NSpace justify="end">
+            <NButton type="error" quaternary @click="askDelete">删除</NButton>
+            <NButton type="primary" @click="emit('edit', movie.id)">编辑</NButton>
+          </NSpace>
+        </div>
+      </template>
     </div>
   </NModal>
 </template>
@@ -187,6 +207,7 @@ const tagFields: { key: 'directors' | 'writers' | 'actors' | 'genres'; label: st
 .detail-card {
   width: 760px;
   max-width: 94vw;
+  height: 86vh;
   max-height: 86vh;
   background: #fff;
   border-radius: 14px;
@@ -194,20 +215,58 @@ const tagFields: { key: 'directors' | 'writers' | 'actors' | 'genres'; label: st
   display: flex;
   flex-direction: column;
 }
+.state {
+  flex: 1;
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 深色沉浸式头部：海报虚化铺底 + 遮罩，海报浮于左侧 */
 .hero {
+  position: relative;
   display: flex;
   gap: 22px;
-  padding: 24px 26px 18px;
-  background: linear-gradient(135deg, #f3f5fb, #eef1f8);
+  padding: 26px 28px 22px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #1f2c3d, #152030 60%, #0e1622);
+}
+.hero.no-cover {
+  background: linear-gradient(135deg, #24344a, #172436 55%, #0f1a28);
+}
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(30px) brightness(0.55) saturate(1.25);
+  transform: scale(1.18);
+  pointer-events: none;
+  user-select: none;
+}
+.hero-mask {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    rgba(10, 16, 26, 0.72) 0%,
+    rgba(10, 16, 26, 0.45) 45%,
+    rgba(10, 16, 26, 0.62) 100%
+  );
+  pointer-events: none;
 }
 .poster {
-  flex: 0 0 150px;
-  width: 150px;
+  position: relative;
+  z-index: 1;
+  flex: 0 0 148px;
+  width: 148px;
   aspect-ratio: 2 / 3;
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-  background: #e2e5ee;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  background: rgba(255, 255, 255, 0.08);
 }
 .poster img {
   width: 100%;
@@ -219,49 +278,78 @@ const tagFields: { key: 'directors' | 'writers' | 'actors' | 'genres'; label: st
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #9aa0ac;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
 }
 .head-info {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 .title {
-  font-size: 22px;
-  color: #1f2329;
+  font-size: 23px;
+  font-weight: 700;
+  color: #fff;
   margin-bottom: 6px;
+  line-height: 1.3;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
 }
 .alt {
   font-size: 13px;
-  color: #8a909c;
+  color: rgba(255, 255, 255, 0.62);
   margin-bottom: 10px;
 }
 .badges {
   display: flex;
   gap: 8px;
-  margin-bottom: 12px;
+  margin: 2px 0 12px;
+}
+.cat-tag {
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: #e8ebf5 !important;
 }
 .rating-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 .rating-num {
   font-size: 20px;
   font-weight: 700;
-  color: #f5a623;
+  color: #ffc53d;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
 }
 .kv {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 18px;
-  font-size: 13px;
-  color: #5b616c;
+  gap: 8px;
+  margin-top: auto;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 3px 10px;
+}
+.chip i {
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
 }
 .body {
   padding: 18px 26px;
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
 }
 .tag-row {
   display: flex;
@@ -270,25 +358,36 @@ const tagFields: { key: 'directors' | 'writers' | 'actors' | 'genres'; label: st
   margin-bottom: 12px;
 }
 .tag-label {
-  flex: 0 0 40px;
+  flex: 0 0 44px;
   font-size: 13px;
   color: #8a909c;
-  padding-top: 2px;
+  padding-top: 3px;
 }
 .section-title {
   font-size: 14px;
   font-weight: 600;
   color: #1f2329;
-  margin: 8px 0 8px;
+  margin: 14px 0 8px;
+}
+.summary {
+  background: #f7f8fa;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+.summary .section-title {
+  margin-top: 0;
 }
 .summary p {
   font-size: 13.5px;
   line-height: 1.8;
   color: #3d434d;
   white-space: pre-wrap;
+  margin: 0;
 }
 .footer {
   padding: 12px 26px;
   border-top: 1px solid #f0f1f4;
+  flex-shrink: 0;
 }
 </style>

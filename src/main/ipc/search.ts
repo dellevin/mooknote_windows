@@ -58,7 +58,7 @@ export function registerSearchIpc(): void {
     async (
       _e,
       url: string,
-      source: 'tmdb' | 'bgm',
+      source: 'tmdb' | 'bgm' | 'vip',
       category: 'movies' | 'books' | 'games',
       entityId: string
     ): Promise<string | null> => {

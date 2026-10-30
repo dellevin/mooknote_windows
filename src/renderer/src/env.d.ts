@@ -55,7 +55,9 @@ import type {
   SyncOutcome,
   Tag,
   TagType,
-  TagDeleteMode
+  TagDeleteMode,
+  IncSyncResult,
+  IncSyncProgress
 } from '@shared/types'
 
 interface MediaQuery {
@@ -91,13 +93,29 @@ interface MookApi {
     count: (table: string) => Promise<number>
     rows: (
       table: string,
-      limit?: number
+      limit?: number,
+      offset?: number
     ) => Promise<{
       columns: string[]
       primaryKeys: string[]
+      columnInfo: {
+        name: string
+        type: string
+        notNull: boolean
+        defaultValue: string | null
+        pk: number
+      }[]
       rows: Record<string, unknown>[]
       total: number
     }>
+    insert: (
+      table: string,
+      values: Record<string, string | null>
+    ) => Promise<number>
+    deleteRow: (
+      table: string,
+      pk: { name: string; value: unknown }[]
+    ) => Promise<number>
     updateCell: (
       table: string,
       column: string,
@@ -294,7 +312,7 @@ interface MookApi {
     bgmDetail: (id: number) => Promise<BgmDetail>
     downloadImage: (
       url: string,
-      source: 'tmdb' | 'bgm',
+      source: 'tmdb' | 'bgm' | 'vip',
       category: 'movies' | 'books' | 'games',
       entityId: string
     ) => Promise<string | null>
@@ -334,7 +352,18 @@ interface MookApi {
     onDownloadProgress: (
       cb: (p: { received: number; total: number; percent: number }) => void
     ) => () => void
+    onUploadProgress: (
+      cb: (p: { received: number; total: number; percent: number; stage: string }) => void
+    ) => () => void
     lastSync: () => Promise<string>
+  }
+  incSync: {
+    upload: () => Promise<IncSyncResult>
+    download: () => Promise<IncSyncResult>
+    restore: () => Promise<IncSyncResult>
+    forcePush: () => Promise<IncSyncResult>
+    info: (fetchRemoteVersion?: boolean) => Promise<{ lastSync: string; manifestVersion: number | null }>
+    onProgress: (cb: (p: IncSyncProgress) => void) => () => void
   }
   tag: {
     list: (type?: TagType) => Promise<Tag[]>
@@ -350,13 +379,14 @@ interface MookApi {
     uuid: () => string
   }
   maintenance: {
-    clearCache: () => Promise<{ bytes: number }>
-    cleanImageRefs: () => Promise<{ removed: number }>
+    clearCache: () => Promise<{ bytes: number; orphanImages: number; emptyDirs: number }>
+    cleanEmptyDirs: () => Promise<{ removed: number }>
   }
   window: {
     minimize: () => void
     toggleMaximize: () => void
     close: () => void
+    onMaximizedChange: (cb: (maximized: boolean) => void) => void
     toggleDevTools: () => void
     setIcon: (src: string | null) => Promise<boolean>
     shellInfo: () => Promise<{

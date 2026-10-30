@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { NSelect, NEmpty, NSpin, NImage, NImageGroup, NTag } from 'naive-ui'
+import { NSelect, NEmpty, NSpin, NImage, NImageGroup, NTag, NInput } from 'naive-ui'
 import type { GalleryImage } from '@shared/types'
 import { toImgUrl, formatDate } from '@/utils/image'
 import { useInfiniteScroll } from '@/utils/infiniteScroll'
@@ -8,6 +8,7 @@ import { useInfiniteScroll } from '@/utils/infiniteScroll'
 const loading = ref(false)
 const images = ref<GalleryImage[]>([])
 const category = ref<string | null>(null)
+const keyword = ref('')
 
 const CATEGORY_LABELS: Record<string, string> = {
   movie_poster: '影视封面',
@@ -29,8 +30,19 @@ const categoryOptions = computed(() =>
   }))
 )
 
+// 搜索：按关联实体标题（影视/书名/游戏/笔记/人物名）匹配，空格拆词全部命中
+const searchTokens = computed(() =>
+  keyword.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
+)
 const filtered = computed(() =>
-  category.value ? images.value.filter((i) => i.category === category.value) : images.value
+  images.value.filter((i) => {
+    if (category.value && i.category !== category.value) return false
+    if (searchTokens.value.length) {
+      const hay = `${i.entityTitle ?? ''} ${catLabel(i.category)}`.toLowerCase()
+      if (!searchTokens.value.every((t) => hay.includes(t))) return false
+    }
+    return true
+  })
 )
 
 // 渲染窗口：图片元数据已在内存，分批挂载 DOM（NImage 自身已 lazy 加载文件）
@@ -49,7 +61,7 @@ useInfiniteScroll(
     margin: '600px 0px'
   }
 )
-watch([filtered, category], () => (renderCount.value = PAGE))
+watch([filtered, category, keyword], () => (renderCount.value = PAGE))
 
 function catLabel(c: string): string {
   return CATEGORY_LABELS[c] ?? c
@@ -69,18 +81,31 @@ onMounted(async () => {
   <div class="page">
     <div class="toolbar">
       <h2 class="title">图库 <span class="total">{{ filtered.length }} 张</span></h2>
-      <NSelect
-        v-model:value="category"
-        :options="categoryOptions"
-        placeholder="全部类型"
-        clearable
-        size="small"
-        class="filter"
-      />
+      <div class="tools">
+        <NInput
+          v-model:value="keyword"
+          placeholder="搜索影视 / 书籍 / 游戏 / 笔记 / 人物名"
+          clearable
+          size="small"
+          class="search"
+        />
+        <NSelect
+          v-model:value="category"
+          :options="categoryOptions"
+          placeholder="全部类型"
+          clearable
+          size="small"
+          class="filter"
+        />
+      </div>
     </div>
 
     <NSpin :show="loading">
-      <NEmpty v-if="!filtered.length && !loading" description="还没有图片" class="empty" />
+      <NEmpty
+        v-if="!filtered.length && !loading"
+        :description="keyword.trim() ? '没有匹配的图片' : '还没有图片'"
+        class="empty"
+      />
       <NImageGroup v-else>
         <div class="masonry">
           <div v-for="(img, i) in visible" :key="img.path + i" class="cell">
@@ -134,6 +159,14 @@ onMounted(async () => {
   background: #f2f4f8;
   border-radius: 999px;
   padding: 3px 11px;
+}
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.search {
+  width: 300px;
 }
 .filter {
   width: 180px;

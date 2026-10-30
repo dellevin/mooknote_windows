@@ -165,7 +165,7 @@ async function remove(r: Review): Promise<void> {
           </div>
           <div class="review-actions">
             <NButton size="tiny" quaternary @click="openEdit(r)">编辑</NButton>
-            <NPopconfirm @positive-click="remove(r)">
+            <NPopconfirm to="body" @positive-click="remove(r)">
               <template #trigger>
                 <NButton size="tiny" quaternary type="error">删除</NButton>
               </template>

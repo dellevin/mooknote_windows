@@ -32,6 +32,31 @@ const initialNoteSort = (): number => {
   return Number.isFinite(v) && v > 0 ? v : 0
 }
 const sortMode = ref(initialNoteSort())
+// 左侧笔记栏宽度：拖动中缝调整，持久化到 localStorage
+const RAIL_MIN = 220
+const RAIL_MAX = 560
+const initialRailWidth = (): number => {
+  const v = Number(localStorage.getItem('noteRailWidth'))
+  return Number.isFinite(v) && v >= RAIL_MIN ? Math.min(v, RAIL_MAX) : 300
+}
+const railWidth = ref(initialRailWidth())
+function startRailResize(e: PointerEvent): void {
+  e.preventDefault()
+  const startX = e.clientX
+  const startW = railWidth.value
+  const onMove = (ev: PointerEvent): void => {
+    railWidth.value = Math.min(RAIL_MAX, Math.max(RAIL_MIN, Math.round(startW + ev.clientX - startX)))
+  }
+  const onUp = (): void => {
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    document.body.classList.remove('rail-resizing')
+    localStorage.setItem('noteRailWidth', String(railWidth.value))
+  }
+  document.body.classList.add('rail-resizing')
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+}
 // 标签筛选：输入 # 触发联想；activeTag 为当前生效标签（芯片展示，可点 × 取消）
 const activeTag = ref<string | null>(null)
 const allTags = ref<string[]>([])
@@ -359,7 +384,7 @@ function cardTitle(n: Note): string {
 <template>
   <div class="page">
     <div class="notes-wrap">
-      <aside class="note-rail">
+      <aside class="note-rail" :style="{ width: railWidth + 'px' }">
         <div class="rail-head">
           <div class="rail-title-row">
             <h2 class="page-title">笔记</h2>
@@ -439,6 +464,8 @@ function cardTitle(n: Note): string {
           </div>
         </NSpin>
       </aside>
+
+      <div class="rail-resizer" title="拖动调整笔记栏宽度" @pointerdown="startRailResize"></div>
 
       <section class="note-detail">
         <NEmpty
@@ -538,12 +565,11 @@ function cardTitle(n: Note): string {
   flex: 1;
   min-height: 0;
   display: flex;
-  gap: 14px;
+  gap: 8px;
 }
 
 /* 左侧笔记栏 */
 .note-rail {
-  width: 300px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -552,6 +578,38 @@ function cardTitle(n: Note): string {
   border: 1px solid #eef0f4;
   border-radius: 14px;
   overflow: hidden;
+}
+/* 左栏与正文之间的拖拽调宽热区：6px 宽，中间 2px 竖线悬停高亮 */
+.rail-resizer {
+  position: relative;
+  width: 6px;
+  flex-shrink: 0;
+  align-self: stretch;
+  cursor: col-resize;
+  z-index: 5;
+  touch-action: none;
+}
+.rail-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 0.15s;
+}
+.rail-resizer:hover::before,
+:global(body.rail-resizing) .rail-resizer::before {
+  background: #c9d0de;
+}
+:global(body.rail-resizing) {
+  cursor: col-resize;
+  user-select: none;
+}
+:global(body.rail-resizing) * {
+  user-select: none !important;
 }
 .rail-head {
   padding: 14px 14px 10px;

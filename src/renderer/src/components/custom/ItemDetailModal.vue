@@ -56,7 +56,7 @@ function isoDate(s: unknown): string {
         <h3>{{ item.title || '无标题条目' }}</h3>
         <NSpace :size="8">
           <NButton size="small" @click="emit('edit', item)">编辑</NButton>
-          <NPopconfirm @positive-click="emit('delete', item)">
+          <NPopconfirm to="body" @positive-click="emit('delete', item)">
             <template #trigger>
               <NButton size="small" type="error" quaternary>删除</NButton>
             </template>

@@ -141,7 +141,7 @@ async function remove(c: Character): Promise<void> {
             <div v-if="c.description" class="char-desc">{{ c.description }}</div>
             <div class="char-actions">
               <NButton size="tiny" quaternary @click="openEdit(c)">编辑</NButton>
-              <NPopconfirm @positive-click="remove(c)">
+              <NPopconfirm to="body" @positive-click="remove(c)">
                 <template #trigger>
                   <NButton size="tiny" quaternary type="error">删除</NButton>
                 </template>

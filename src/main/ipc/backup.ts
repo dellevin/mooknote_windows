@@ -72,7 +72,18 @@ export function registerBackupIpc(): void {
   })
 
   ipcMain.handle('webdav:test', (_e, cfg: WebDavConfig) => testConnection(cfg))
-  ipcMain.handle('webdav:upload', () => uploadBackup())
+  ipcMain.handle('webdav:upload', (event) =>
+    uploadBackup((sent, total, stage) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('webdav:upload-progress', {
+          received: sent,
+          total,
+          stage: stage ?? 'transfer',
+          percent: total > 0 ? Math.min(100, Math.round((sent / total) * 100)) : 0
+        })
+      }
+    })
+  )
   ipcMain.handle('webdav:download', (event) =>
     downloadBackup((received, total) => {
       if (!event.sender.isDestroyed()) {

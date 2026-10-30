@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url'
 import { getDb } from '../db'
 import { getDataRoot, dbPath, imagesRoot } from '../paths'
 import { prefs } from '../prefs'
-import { clearCacheData, cleanInvalidImageRefs } from '../services/maintenanceService'
+import {
+  clearCacheData,
+  cleanEmptyImageDirs
+} from '../services/maintenanceService'
 
 // 友好的系统名称，如「Windows 11 x64」「macOS 14 arm64」「Linux x64」
 function friendlyPlatform(): string {
@@ -104,27 +107,78 @@ export function registerIpc(): void {
   })
 
   // 在线查看表数据：返回列名、主键列与前 N 行
-  ipcMain.handle('db:rows', (_e, table: string, limit = 100) => {
+  ipcMain.handle('db:rows', (_e, table: string, limit = 100, offset = 0) => {
     if (!/^[a-z_]+$/.test(table)) throw new Error('非法表名')
     const db = getDb()
     const max = Math.min(Math.max(Number(limit) || 100, 1), 500)
+    const off = Math.max(Number(offset) || 0, 0)
     const info = db.prepare(`PRAGMA table_info(${table})`).all() as {
       name: string
+      type: string
+      notnull: number
+      dflt_value: string | null
       pk: number
     }[]
     const columns = info.map((c) => c.name)
     const primaryKeys = info.filter((c) => c.pk > 0).map((c) => c.name)
-    const rows = db.prepare(`SELECT * FROM ${table} LIMIT ${max}`).all() as Record<
-      string,
-      unknown
-    >[]
+    const rows = db
+      .prepare(`SELECT * FROM ${table} LIMIT ${max} OFFSET ${off}`)
+      .all() as Record<string, unknown>[]
     return {
       columns,
       primaryKeys,
+      columnInfo: info.map((c) => ({
+        name: c.name,
+        type: c.type,
+        notNull: c.notnull === 1,
+        defaultValue: c.dflt_value,
+        pk: c.pk
+      })),
       rows,
       total: (db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get() as { c: number }).c
     }
   })
+
+  // 插入一行：字段名白名单校验，值以字符串传入（空串视为 NULL），SQLite 按列亲和性转换
+  ipcMain.handle(
+    'db:insert',
+    (_e, table: string, values: Record<string, string | null>) => {
+      if (!/^[a-z_]+$/.test(table)) throw new Error('非法表名')
+      const db = getDb()
+      const cols = Object.keys(values)
+      if (!cols.length) throw new Error('没有字段')
+      for (const c of cols) {
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(c)) throw new Error('非法字段名')
+      }
+      const colList = cols.map((c) => `"${c}"`).join(', ')
+      const placeholders = cols.map(() => '?').join(', ')
+      const stmt = db.prepare(
+        `INSERT INTO ${table} (${colList}) VALUES (${placeholders})`
+      )
+      const info = stmt.run(...cols.map((c) => values[c]))
+      return info.changes
+    }
+  )
+
+  // 按主键删除一行
+  ipcMain.handle(
+    'db:delete-row',
+    (_e, table: string, pk: { name: string; value: unknown }[]) => {
+      if (!/^[a-z_]+$/.test(table)) throw new Error('非法表名')
+      if (!pk.length) throw new Error('该表没有主键，无法定位行')
+      const db = getDb()
+      const where = pk
+        .map((k) => {
+          if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k.name)) throw new Error('非法主键名')
+          return `${k.name} = ?`
+        })
+        .join(' AND ')
+      const info = db.prepare(`DELETE FROM ${table} WHERE ${where}`).run(
+        ...pk.map((k) => k.value)
+      )
+      return info.changes
+    }
+  )
 
   // 单元格更新（双击编辑），必须有主键
   ipcMain.handle(
@@ -184,7 +238,7 @@ export function registerIpc(): void {
     return true
   })
 
-  // 维护：清理缓存数据 / 清除无效图片引用
+  // 维护：清理缓存数据 / 清理空文件夹
   ipcMain.handle('maintenance:clear-cache', () => clearCacheData())
-  ipcMain.handle('maintenance:clean-image-refs', () => cleanInvalidImageRefs())
+  ipcMain.handle('maintenance:clean-empty-dirs', () => cleanEmptyImageDirs())
 }

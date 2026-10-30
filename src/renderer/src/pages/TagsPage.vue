@@ -12,8 +12,23 @@ import {
   NSelect,
   useMessage
 } from 'naive-ui'
-import { TAG_TYPE_LABELS, type Tag, type TagType } from '@shared/types'
+import {
+  TAG_TYPE_LABELS,
+  BOOK_STATUS_LABELS,
+  GAME_STATUS_LABELS,
+  type Tag,
+  type TagType,
+  type Movie,
+  type Book,
+  type Game,
+  type Note
+} from '@shared/types'
 import { useInfiniteScroll } from '@/utils/infiniteScroll'
+import PosterCard from '@/components/PosterCard.vue'
+import CoverCard from '@/components/CoverCard.vue'
+import MovieDetailModal from '@/components/MovieDetailModal.vue'
+import BookDetailModal from '@/components/book/BookDetailModal.vue'
+import GameDetailModal from '@/components/game/GameDetailModal.vue'
 
 const TYPES: TagType[] = ['movie_genre', 'book_genre', 'game_genre', 'note_tag']
 const message = useMessage()
@@ -294,6 +309,70 @@ async function confirmDelete(): Promise<void> {
 }
 
 onMounted(load)
+
+// ── 查看标签关联条目 ──
+const viewTarget = ref<Tag | null>(null)
+const viewLoading = ref(false)
+const viewMovies = ref<Movie[]>([])
+const viewBooks = ref<Book[]>([])
+const viewGames = ref<Game[]>([])
+const viewNotes = ref<Note[]>([])
+
+// 标签只存名称字符串，note.list 的 tag 是 LIKE 子串匹配；影视/书/游戏没有按标签
+// 查询接口，直接全量取未删除条目后在内存里按数组精确匹配（与 tagDao.usage 同思路）。
+async function openView(t: Tag): Promise<void> {
+  viewTarget.value = t
+  viewMovies.value = []
+  viewBooks.value = []
+  viewGames.value = []
+  viewNotes.value = []
+  viewLoading.value = true
+  try {
+    if (t.type === 'note_tag') {
+      viewNotes.value = (await window.mook.note.list({ tag: t.name })).filter((n) =>
+        n.tags.includes(t.name)
+      )
+    } else if (t.type === 'movie_genre') {
+      viewMovies.value = (await window.mook.movie.list()).filter((m) =>
+        m.genres.includes(t.name)
+      )
+    } else if (t.type === 'book_genre') {
+      viewBooks.value = (await window.mook.book.list()).filter((b) =>
+        b.genres.includes(t.name)
+      )
+    } else {
+      viewGames.value = (await window.mook.game.list()).filter((g) =>
+        g.genres.includes(t.name)
+      )
+    }
+  } catch (e) {
+    message.error('加载关联条目失败：' + String(e))
+  } finally {
+    viewLoading.value = false
+  }
+}
+
+const viewCount = computed(
+  () =>
+    viewMovies.value.length +
+    viewBooks.value.length +
+    viewGames.value.length +
+    viewNotes.value.length
+)
+
+function notePreview(n: Note): string {
+  return n.content.replace(/[#>*`\-\[\]()!]/g, '').trim().slice(0, 80) || '（无内容）'
+}
+
+// 详情弹窗
+const detailShow = ref(false)
+const detailId = ref<string | null>(null)
+const detailKind = ref<'movie' | 'book' | 'game'>('movie')
+function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
+  detailKind.value = kind
+  detailId.value = id
+  detailShow.value = true
+}
 </script>
 
 <template>
@@ -353,9 +432,23 @@ onMounted(load)
             ▸
           </button>
           <span v-else class="caret-placeholder"></span>
-          <span class="name" :class="{ hidden: node.tag.isHidden }">{{ node.tag.name }}</span>
+          <button
+            type="button"
+            class="name name-btn"
+            :class="{ hidden: node.tag.isHidden }"
+            :title="`查看带有「${node.tag.name}」的条目`"
+            @click.stop="openView(node.tag)"
+          >
+            {{ node.tag.name }}
+          </button>
           <NTag v-if="node.tag.isHidden" size="tiny" :bordered="false">已隐藏</NTag>
-          <span class="count">{{ usage[node.tag.name] ?? 0 }} 次使用</span>
+          <button
+            type="button"
+            class="count count-btn"
+            @click.stop="openView(node.tag)"
+          >
+            {{ usage[node.tag.name] ?? 0 }} 次使用
+          </button>
           <div class="ops">
             <NButton size="tiny" quaternary @click.stop="startEdit(node.tag)">重命名</NButton>
             <NButton size="tiny" quaternary @click.stop="toggleHidden(node.tag)">
@@ -445,6 +538,81 @@ onMounted(load)
         </div>
       </div>
     </NModal>
+
+    <NModal
+      :show="!!viewTarget"
+      @update:show="(v: boolean) => !v && (viewTarget = null)"
+    >
+      <div v-if="viewTarget" class="view-card">
+        <div class="view-head">
+            <h3>
+              标签「{{ viewTarget.name }}」的关联条目
+              <span class="view-type">{{ TAG_TYPE_LABELS[viewTarget.type] }}</span>
+            </h3>
+            <NButton size="tiny" quaternary @click="viewTarget = null">关闭</NButton>
+          </div>
+          <NSpin :show="viewLoading" class="view-body">
+            <div v-if="!viewLoading && !viewCount" class="view-empty">
+              没有条目使用这个标签
+            </div>
+
+            <div v-if="viewMovies.length" class="view-grid">
+              <PosterCard
+                v-for="m in viewMovies"
+                :key="m.id"
+                :movie="m"
+                @open="openDetail('movie', $event)"
+              />
+            </div>
+            <div v-if="viewBooks.length" class="view-grid">
+              <CoverCard
+                v-for="b in viewBooks"
+                :key="b.id"
+                :title="b.title"
+                :cover-path="b.coverPath"
+                :rating="b.rating"
+                :status-label="BOOK_STATUS_LABELS[b.status]"
+                :date="b.publishDate"
+                @open="openDetail('book', b.id)"
+              />
+            </div>
+            <div v-if="viewGames.length" class="view-grid">
+              <CoverCard
+                v-for="g in viewGames"
+                :key="g.id"
+                :title="g.title"
+                :cover-path="g.coverPath"
+                :rating="g.rating"
+                :status-label="GAME_STATUS_LABELS[g.status]"
+                :date="g.releaseDate"
+                @open="openDetail('game', g.id)"
+              />
+            </div>
+            <div v-if="viewNotes.length" class="note-list">
+              <div v-for="n in viewNotes" :key="n.id" class="note-row">
+                <div class="note-title">{{ n.title || '无标题笔记' }}</div>
+                <div class="note-preview">{{ notePreview(n) }}</div>
+              </div>
+            </div>
+          </NSpin>
+        </div>
+      </NModal>
+
+      <MovieDetailModal
+        v-if="detailKind === 'movie'"
+        v-model:show="detailShow"
+        :id="detailId"
+      />
+      <BookDetailModal
+        v-else-if="detailKind === 'book'"
+        v-model:show="detailShow"
+        :id="detailId"
+      />
+      <GameDetailModal
+        v-else-if="detailKind === 'game'"
+        v-model:show="detailShow"
+        :id="detailId"
+      />
   </div>
 </template>
 
@@ -582,9 +750,106 @@ onMounted(load)
 .name.hidden {
   color: #a8adb8;
 }
+.name-btn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.name-btn:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
 .count {
   font-size: 11.5px;
   color: #a8adb8;
+}
+.count-btn {
+  padding: 2px 8px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.count-btn:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, #fff);
+}
+.view-card {
+  width: 780px;
+  max-width: 94vw;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--fluent-card);
+  backdrop-filter: blur(32px) saturate(1.4);
+  border: 1px solid var(--fluent-stroke);
+  border-radius: 14px;
+  box-shadow: var(--fluent-shadow);
+  padding: 20px 22px;
+}
+.view-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.view-head h3 {
+  font-size: 16px;
+  color: #1f2329;
+}
+.view-type {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--accent);
+  margin-left: 8px;
+}
+.view-empty {
+  padding: 48px 0;
+  text-align: center;
+  font-size: 13px;
+  color: #a8adb8;
+}
+.view-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.view-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 14px 10px;
+  align-content: start;
+}
+.view-grid + .view-grid {
+  margin-top: 18px;
+}
+.note-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.note-row {
+  padding: 10px 12px;
+  border: 1px solid #eef0f4;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+}
+.note-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1f2329;
+  margin-bottom: 3px;
+}
+.note-preview {
+  font-size: 12.5px;
+  color: #8a909c;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ops {
   margin-left: auto;

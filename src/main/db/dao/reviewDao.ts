@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3'
 import { getDb } from '../index'
 import { parseStringList, encodeList, strOrNull } from '../util'
 import type { Review, ReviewInput, ReviewKind } from '../../../shared/types'
+import { recordTombstone } from '../../services/sync/syncTombstones'
 
 // 三类评价表名与外键列
 const TABLE: Record<ReviewKind, { table: string; fk: string }> = {
@@ -108,6 +109,7 @@ class ReviewDao {
 
   permanentDelete(kind: ReviewKind, id: string): void {
     const { table } = TABLE[kind]
+    recordTombstone(table, id)
     this.db().prepare(`DELETE FROM ${table} WHERE id=?`).run(id)
   }
 }

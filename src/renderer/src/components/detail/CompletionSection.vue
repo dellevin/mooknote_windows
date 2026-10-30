@@ -84,7 +84,7 @@ async function remove(e: GameCompletion): Promise<void> {
             <span class="date">🏁 {{ formatDate(e.completionDate) }}</span>
             <span v-if="e.note" class="note">{{ e.note }}</span>
           </div>
-          <NPopconfirm @positive-click="remove(e)">
+          <NPopconfirm to="body" @positive-click="remove(e)">
             <template #trigger>
               <NButton size="tiny" quaternary type="error">删除</NButton>
             </template>

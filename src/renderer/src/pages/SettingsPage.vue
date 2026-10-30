@@ -17,7 +17,14 @@ import {
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import type { WebDavConfig } from '@shared/types'
-import { FONT_OPTIONS, ICON_OPTIONS, applyFont, applyIcon } from '@/utils/theme'
+import {
+  FONT_OPTIONS,
+  ICON_OPTIONS,
+  applyFont,
+  applyIcon,
+  preloadFontFaces,
+  fontPreviewStack
+} from '@/utils/theme'
 import { renderMarkdown } from '@/utils/markdown'
 
 interface AppInfo {
@@ -76,9 +83,9 @@ function toggleDevTools(): void {
   window.mook.window.toggleDevTools()
 }
 
-// ── 维护：清理缓存 / 清除无效图片引用 ──
+// ── 维护：清理缓存 / 清理空文件夹 ──
 const clearingCache = ref(false)
-const cleaningRefs = ref(false)
+const cleaningEmptyDirs = ref(false)
 
 function fmtBytesSize(n: number): string {
   if (!n) return '0 B'
@@ -90,14 +97,21 @@ function fmtBytesSize(n: number): string {
 async function clearCache(): Promise<void> {
   dialog.warning({
     title: '清理缓存数据',
-    content: '将清除应用的网络/GPU 缓存和临时文件（不影响数据库、图片和设置），可能需要重新联网加载部分内容。确定继续？',
+    content:
+      '将清除应用的网络/GPU 缓存和临时文件，并删除数据库已不引用的孤立图片（删除笔记/影评等后残留的图片文件，不影响仍在使用的数据）。可能需要重新联网加载部分内容。确定继续？',
     positiveText: '清理',
     negativeText: '取消',
     onPositiveClick: async () => {
       clearingCache.value = true
       try {
         const r = await window.mook.maintenance.clearCache()
-        message.success(`缓存已清理，释放 ${fmtBytesSize(r.bytes)}`)
+        const extras = [
+          r.orphanImages ? `删除 ${r.orphanImages} 张孤立图片` : '',
+          r.emptyDirs ? `删除 ${r.emptyDirs} 个空文件夹` : ''
+        ]
+          .filter(Boolean)
+          .join('，')
+        message.success(`缓存已清理，释放 ${fmtBytesSize(r.bytes)}${extras ? `，${extras}` : ''}`)
       } catch (e) {
         message.error('清理失败：' + String(e))
       } finally {
@@ -107,26 +121,18 @@ async function clearCache(): Promise<void> {
   })
 }
 
-async function cleanImageRefs(): Promise<void> {
-  dialog.warning({
-    title: '清除无效图片引用',
-    content: '将扫描数据库中指向已丢失文件的封面/截图等图片引用并清空（不会删除任何图片文件，也不影响正常数据）。建议先做一次备份。确定继续？',
-    positiveText: '清除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
-      cleaningRefs.value = true
-      try {
-        const r = await window.mook.maintenance.cleanImageRefs()
-        r.removed
-          ? message.success(`已清除 ${r.removed} 处无效图片引用`)
-          : message.info('未发现无效图片引用')
-      } catch (e) {
-        message.error('清除失败：' + String(e))
-      } finally {
-        cleaningRefs.value = false
-      }
-    }
-  })
+async function cleanEmptyDirs(): Promise<void> {
+  cleaningEmptyDirs.value = true
+  try {
+    const r = await window.mook.maintenance.cleanEmptyDirs()
+    r.removed
+      ? message.success(`已删除 ${r.removed} 个空文件夹`)
+      : message.info('未发现空文件夹')
+  } catch (e) {
+    message.error('清理失败：' + String(e))
+  } finally {
+    cleaningEmptyDirs.value = false
+  }
 }
 
 // ── 数据库查看跳转到独立页面 /db ──
@@ -373,6 +379,7 @@ const davDownloading = ref(false)
 const davSaving = ref(false)
 const lastSync = ref('')
 const davProgress = ref({ active: false, percent: 0, received: 0, total: 0 })
+const uploadProgress = ref({ active: false, percent: 0, received: 0, total: 0, stage: 'transfer' })
 
 function fmtBytes(n: number): string {
   if (!n) return '0 B'
@@ -441,17 +448,186 @@ async function testDav(): Promise<void> {
 
 async function davUpload(): Promise<void> {
   if (!(await persistDavSilent())) return
-  davUploading.value = true
-  try {
-    const r = await window.mook.webdav.upload()
-    if (r.success) {
-      message.success(`上传成功（${r.imageCount ?? 0} 张图片）`)
-      lastSync.value = new Date().toISOString()
-    } else {
-      message.error(r.message)
+  uploadProgress.value = { active: false, percent: 0, received: 0, total: 0, stage: 'transfer' }
+
+  const d = dialog.warning({
+    title: '上传备份',
+    positiveText: '开始上传',
+    negativeText: '取消',
+    content: () =>
+      h('div', null, [
+        h('p', { style: 'margin:0 0 10px' }, '将本地数据打包为 zip 上传到 WebDAV，远程保留最新 5 个备份。'),
+        uploadProgress.value.active
+          ? h('div', null, [
+              h(NProgress, {
+                type: 'line',
+                percentage: uploadProgress.value.percent,
+                height: 8,
+                borderRadius: 4,
+                indicatorPlacement: 'inside',
+                processing: true
+              }),
+              h(
+                'div',
+                { style: 'margin-top:6px;font-size:12px;color:#7a808a' },
+                uploadProgress.value.stage === 'verify'
+                  ? '上传完成，正在服务器端校验文件…'
+                  : uploadProgress.value.stage === 'cleanup'
+                    ? '校验通过，正在清理旧备份…'
+                    : uploadProgress.value.total > 0
+                      ? `上传中 ${uploadProgress.value.percent}%（${fmtBytes(
+                          uploadProgress.value.received
+                        )} / ${fmtBytes(uploadProgress.value.total)}）`
+                      : '正在上传…'
+              )
+            ])
+          : null
+      ]),
+    onPositiveClick: async () => {
+      davUploading.value = true
+      uploadProgress.value = { active: true, percent: 0, received: 0, total: 0, stage: 'transfer' }
+      const off = window.mook.webdav.onUploadProgress((p) => {
+        uploadProgress.value = { active: true, ...p }
+      })
+      try {
+        const r = await window.mook.webdav.upload()
+        if (r.success) {
+          message.success(`上传成功（${r.imageCount ?? 0} 张图片）`)
+          lastSync.value = new Date().toISOString()
+        } else {
+          message.error(r.message)
+        }
+      } finally {
+        off()
+        davUploading.value = false
+        uploadProgress.value.active = false
+        d.destroy()
+      }
     }
-  } finally {
-    davUploading.value = false
+  })
+}
+
+// ── 增量同步（inc2，与手机版互通） ──
+type BackupMode = 'full' | 'inc'
+type IncAction = 'upload' | 'download' | 'restore' | 'forcePush'
+const backupMode = ref<BackupMode>('full')
+const incBusy = ref(false)
+const incLastSync = ref('')
+const incVersion = ref<number | null>(null)
+const incProgress = ref({
+  stage: '',
+  message: '',
+  upRecords: 0,
+  downRecords: 0,
+  upImages: 0,
+  downImages: 0,
+  dedupImages: 0
+})
+
+const backupModeOptions: SelectOption[] = [
+  { label: '整包 zip（旧模式，远程保留最新 5 个备份）', value: 'full' },
+  { label: '增量同步（多端双向合并，与手机版互通）', value: 'inc' }
+]
+
+async function onBackupModePick(v: BackupMode): Promise<void> {
+  backupMode.value = v
+  await window.mook.prefs.set('webdav_backup_mode', v)
+  if (v === 'inc') await refreshIncInfo()
+}
+
+async function refreshIncInfo(fetchRemoteVersion = true): Promise<void> {
+  const info2 = await window.mook.incSync.info(fetchRemoteVersion)
+  incLastSync.value = info2.lastSync
+  incVersion.value = info2.manifestVersion
+}
+
+const INC_CONFIRM: Partial<Record<IncAction, string>> = {
+  restore: '将以云端快照覆盖本机全部数据与图片，本机尚未同步的变更会丢失。确定继续？',
+  forcePush: '将以本机数据重建云端基线，远程增量历史会被覆盖替换。确定继续？'
+}
+
+function runInc(action: IncAction): void {
+  const exec = async (): Promise<void> => {
+    if (!(await persistDavSilent())) return
+    incBusy.value = true
+    incProgress.value = {
+      stage: 'connect',
+      message: '准备中…',
+      upRecords: 0,
+      downRecords: 0,
+      upImages: 0,
+      downImages: 0,
+      dedupImages: 0
+    }
+    const titleMap: Record<IncAction, string> = {
+      upload: '立即同步（双向）',
+      download: '仅下载',
+      restore: '恢复（以云端为准）',
+      forcePush: '强制推送（以本机为准）'
+    }
+    const d = dialog.create({
+      title: titleMap[action],
+      closable: false,
+      maskClosable: false,
+      content: () =>
+        h('div', null, [
+          h(NProgress, {
+            type: 'line',
+            percentage: 100,
+            height: 8,
+            borderRadius: 4,
+            indicatorPlacement: 'inside',
+            processing: true
+          }),
+          h('div', { style: 'margin-top:8px;font-size:13px' }, incProgress.value.message),
+          h(
+            'div',
+            { style: 'margin-top:6px;font-size:12px;color:#7a808a' },
+            `上行 ${incProgress.value.upRecords} 条 / 图片 ${incProgress.value.upImages}（去重 ${incProgress.value.dedupImages}） · 下行 ${incProgress.value.downRecords} 条 / 图片 ${incProgress.value.downImages}`
+          )
+        ])
+    })
+    const off = window.mook.incSync.onProgress((p) => {
+      incProgress.value = p
+    })
+    try {
+      const r =
+        action === 'upload'
+          ? await window.mook.incSync.upload()
+          : action === 'download'
+            ? await window.mook.incSync.download()
+            : action === 'restore'
+              ? await window.mook.incSync.restore()
+              : await window.mook.incSync.forcePush()
+      if (r.success) {
+        message.success(
+          `${r.message}（上行 ${r.uploadedRecords} 条/图片 ${r.uploadedImages}，下行 ${r.downloadedRecords} 条/图片 ${r.downloadedImages}）`
+        )
+        await refreshIncInfo()
+        if (r.needReload) promptReload()
+      } else {
+        message.error(r.message)
+      }
+    } catch (e) {
+      message.error('同步失败：' + String(e))
+    } finally {
+      off()
+      incBusy.value = false
+      d.destroy()
+    }
+  }
+
+  const confirmText = INC_CONFIRM[action]
+  if (confirmText) {
+    dialog.warning({
+      title: '请确认',
+      content: confirmText,
+      positiveText: '继续',
+      negativeText: '取消',
+      onPositiveClick: () => exec()
+    })
+  } else {
+    void exec()
   }
 }
 
@@ -516,10 +692,6 @@ async function davDownload(): Promise<void> {
 const uiFont = ref('system')
 const uiIcon = ref('default')
 
-const fontOptions: SelectOption[] = FONT_OPTIONS.map((f) =>
-  f.url ? { label: f.label, value: f.key, style: { fontFamily: f.family } } : { label: f.label, value: f.key }
-)
-
 async function onFontPick(v: string): Promise<void> {
   uiFont.value = v
   try {
@@ -541,6 +713,7 @@ async function onIconPick(key: string): Promise<void> {
 }
 
 onMounted(async () => {
+  preloadFontFaces()
   info.value = await window.mook.appInfo()
   uiFont.value = await window.mook.prefs.get<string>('uiFont', 'system')
   uiIcon.value = await window.mook.prefs.get<string>('uiIcon', 'default')
@@ -557,6 +730,9 @@ onMounted(async () => {
   const cfg = await window.mook.webdav.getConfig()
   if (cfg) davCfg.value = cfg
   lastSync.value = await window.mook.webdav.lastSync()
+  backupMode.value = await window.mook.prefs.get<BackupMode>('webdav_backup_mode', 'full')
+  // 挂载时只读本地状态，不发起网络请求；版本号在切到增量模式或同步后拉取
+  await refreshIncInfo(false)
 })
 </script>
 
@@ -582,15 +758,28 @@ onMounted(async () => {
         <NCard title="软件外观" size="small" class="card">
           <p class="hint">自定义应用界面字体与窗口图标，选择后自动保存并立即生效，下次启动时保留。</p>
 
-          <div class="form-row">
+          <div class="form-row icon-row">
             <label class="lbl">界面字体</label>
-            <NSelect
-              :value="uiFont"
-              :options="fontOptions"
-              size="small"
-              class="ctrl"
-              @update:value="onFontPick"
-            />
+            <div class="icon-picker">
+              <button
+                v-for="ft in FONT_OPTIONS"
+                :key="ft.key"
+                type="button"
+                class="icon-tile font-tile"
+                :class="{ on: uiFont === ft.key }"
+                :title="ft.label"
+                @click="onFontPick(ft.key)"
+              >
+                <span
+                  class="font-preview"
+                  :style="{
+                    fontFamily: fontPreviewStack(ft),
+                    transform: `translateY(${ft.yOffset}em)`
+                  }"
+                >Aa 永</span>
+                <span class="icon-name">{{ ft.label }}</span>
+              </button>
+            </div>
           </div>
 
           <div class="form-row icon-row">
@@ -769,10 +958,34 @@ onMounted(async () => {
       <div id="set-webdav" class="panel">
         <NCard title="WebDAV 备份" size="small" class="card">
           <template #header-extra>
-            <span class="sync-time">上次同步：{{ fmtSyncTime(lastSync) }}</span>
+            <span class="sync-time">
+              {{
+                backupMode === 'inc'
+                  ? `上次同步：${fmtSyncTime(incLastSync)}`
+                  : `上次同步：${fmtSyncTime(lastSync)}`
+              }}
+            </span>
           </template>
+
+          <div class="form-row">
+            <label class="lbl">备份模式</label>
+            <NSelect
+              :value="backupMode"
+              :options="backupModeOptions"
+              size="small"
+              class="ctrl"
+              @update:value="onBackupModePick"
+            />
+          </div>
           <p class="hint">
-            上传为单个 zip 备份（与安卓版一致），远程保留最新 5 个；下载取最新备份覆盖本地，兼容远程的分片目录备份。支持 Basic / Digest 认证。
+            <template v-if="backupMode === 'inc'">
+              增量模式：与手机版共用同一目录（<code>inc2/</code>）双向合并，按更新时间解决冲突、自动传播删除，只传变化的数据与图片，云端自动压实。首次同步会建立基线。
+              <template v-if="incVersion != null"> · 云端基线 v{{ incVersion }}</template>
+            </template>
+            <template v-else>
+              上传为单个 zip 备份（与安卓版一致），远程保留最新 5 个；下载取最新备份覆盖本地，兼容远程的分片目录备份。
+            </template>
+            支持 Basic / Digest 认证。
           </p>
 
           <div class="form-row">
@@ -809,9 +1022,24 @@ onMounted(async () => {
               保存配置
             </NButton>
             <NButton size="small" :loading="davTesting" @click="testDav">测试连接</NButton>
-            <NButton size="small" :loading="davUploading" @click="davUpload">上传备份</NButton>
-            <NButton size="small" :loading="davDownloading" @click="davDownload">
-              下载并恢复
+            <template v-if="backupMode === 'full'">
+              <NButton size="small" :loading="davUploading" @click="davUpload">上传备份</NButton>
+              <NButton size="small" :loading="davDownloading" @click="davDownload">
+                下载并恢复
+              </NButton>
+            </template>
+          </NSpace>
+
+          <NSpace v-if="backupMode === 'inc'" :size="10" class="save-row">
+            <NButton size="small" type="primary" :loading="incBusy" @click="runInc('upload')">
+              立即同步（双向）
+            </NButton>
+            <NButton size="small" :loading="incBusy" @click="runInc('download')">仅下载</NButton>
+            <NButton size="small" :loading="incBusy" @click="runInc('restore')">
+              恢复（以云端为准）
+            </NButton>
+            <NButton size="small" :loading="incBusy" @click="runInc('forcePush')">
+              强制推送（以本机为准）
             </NButton>
           </NSpace>
         </NCard>
@@ -875,8 +1103,8 @@ onMounted(async () => {
             <NButton size="small" :loading="clearingCache" @click="clearCache">
               清理缓存数据
             </NButton>
-            <NButton size="small" :loading="cleaningRefs" @click="cleanImageRefs">
-              清除无效图片引用
+            <NButton size="small" :loading="cleaningEmptyDirs" @click="cleanEmptyDirs">
+              清理空文件夹
             </NButton>
           </NSpace>
         </NCard>
@@ -1038,6 +1266,20 @@ onMounted(async () => {
   overflow: hidden;
   max-width: 100%;
   text-overflow: ellipsis;
+}
+.font-preview {
+  height: 40px;
+  min-width: 40px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  line-height: 1;
+  white-space: nowrap;
+  color: #1f2329;
+  border-radius: 8px;
+  background: #f4f5f8;
 }
 .save-row {
   margin-top: 14px;

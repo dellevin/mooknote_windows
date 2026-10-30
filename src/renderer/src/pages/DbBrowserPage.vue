@@ -1,19 +1,50 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { NButton, NInput, NSpin, useMessage } from 'naive-ui'
+import {
+  NButton,
+  NInput,
+  NSpin,
+  NModal,
+  NCheckbox,
+  useMessage,
+  useDialog
+} from 'naive-ui'
 
 type Row = Record<string, unknown>
+interface ColInfo {
+  name: string
+  type: string
+  notNull: boolean
+  defaultValue: string | null
+  pk: number
+}
+interface FieldState {
+  name: string
+  type: string
+  isNull: boolean
+  value: string
+}
 
 const router = useRouter()
 const message = useMessage()
+const dialog = useDialog()
 
 const tables = ref<string[]>([])
+const tableFilter = ref('')
+const filteredTables = computed(() => {
+  const q = tableFilter.value.trim().toLowerCase()
+  return q ? tables.value.filter((t) => t.toLowerCase().includes(q)) : tables.value
+})
 const activeTable = ref<string | null>(null)
 const columns = ref<string[]>([])
+const columnInfo = ref<ColInfo[]>([])
 const primaryKeys = ref<string[]>([])
 const rows = ref<Row[]>([])
 const total = ref(0)
+const page = ref(0)
+const PAGE_SIZE = 200
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 const tableLoading = ref(false)
 const sqlRunning = ref(false)
 
@@ -23,9 +54,12 @@ const sqlColumns = ref<string[]>([])
 const sqlRows = ref<Row[]>([])
 const sqlMode = ref(false)
 
-// 单元格编辑：{row index, column}
-const editing = ref<{ row: number; col: string } | null>(null)
-const editValue = ref('')
+// 新增 / 编辑弹窗
+const formShow = ref(false)
+const formMode = ref<'add' | 'edit'>('add')
+const formSaving = ref(false)
+const fields = ref<FieldState[]>([])
+const editPk = ref<{ name: string; value: unknown }[]>([])
 
 function cellText(v: unknown): string {
   if (v === null || v === undefined) return 'NULL'
@@ -38,13 +72,15 @@ async function loadTables(): Promise<void> {
   if (tables.value[0]) await loadTable(tables.value[0])
 }
 
-async function loadTable(table: string): Promise<void> {
+async function loadTable(table: string, targetPage = 0): Promise<void> {
   sqlMode.value = false
   activeTable.value = table
+  page.value = targetPage
   tableLoading.value = true
   try {
-    const r = await window.mook.db.rows(table, 200)
+    const r = await window.mook.db.rows(table, PAGE_SIZE, targetPage * PAGE_SIZE)
     columns.value = r.columns
+    columnInfo.value = r.columnInfo
     primaryKeys.value = r.primaryKeys
     rows.value = r.rows
     total.value = r.total
@@ -55,31 +91,122 @@ async function loadTable(table: string): Promise<void> {
   }
 }
 
-function startEdit(row: number, col: string): void {
-  if (sqlMode.value || !primaryKeys.value.length) {
-    if (!primaryKeys.value.length) message.warning('该表没有主键，无法直接编辑，可用 SQL 修改')
-    return
-  }
-  editing.value = { row, col }
-  const v = rows.value[row][col]
-  editValue.value = v === null || v === undefined ? '' : cellText(v)
+async function refresh(): Promise<void> {
+  if (activeTable.value) await loadTable(activeTable.value, page.value)
 }
 
-async function commitEdit(): Promise<void> {
-  if (!editing.value || !activeTable.value) {
-    editing.value = null
+function gotoPage(p: number): void {
+  if (!activeTable.value || p < 0 || p >= totalPages.value) return
+  void loadTable(activeTable.value, p)
+}
+
+function toFieldState(name: string, v: unknown, info: ColInfo | undefined): FieldState {
+  const isNull = v === null || v === undefined
+  return {
+    name,
+    type: info?.type ?? '',
+    isNull,
+    value: isNull ? '' : cellText(v)
+  }
+}
+
+function openAdd(): void {
+  if (!activeTable.value) return
+  formMode.value = 'add'
+  editPk.value = []
+  fields.value = columnInfo.value.map((c) => {
+    const f = toFieldState(c.name, null, c)
+    // 文本主键 id 预填 UUID，省去手填
+    if (c.pk > 0 && c.name === 'id' && /TEXT|VARCHAR|CHAR/i.test(c.type || 'TEXT')) {
+      f.isNull = false
+      f.value = crypto.randomUUID()
+    }
+    return f
+  })
+  formShow.value = true
+}
+
+function openEdit(rowIndex: number): void {
+  if (!primaryKeys.value.length) {
+    message.warning('该表没有主键，无法编辑，可用 SQL 修改')
     return
   }
-  const { row, col } = editing.value
-  const pk = primaryKeys.value.map((name) => ({ name, value: rows.value[row][name] }))
+  const row = rows.value[rowIndex]
+  formMode.value = 'edit'
+  editPk.value = primaryKeys.value.map((name) => ({ name, value: row[name] }))
+  fields.value = columns.value.map((c) =>
+    toFieldState(c, row[c], columnInfo.value.find((ci) => ci.name === c))
+  )
+  formShow.value = true
+}
+
+function collectValues(): Record<string, string | null> {
+  const out: Record<string, string | null> = {}
+  for (const f of fields.value) out[f.name] = f.isNull ? null : f.value
+  return out
+}
+
+async function saveForm(): Promise<void> {
+  if (!activeTable.value) return
+  const values = collectValues()
+  formSaving.value = true
   try {
-    await window.mook.db.updateCell(activeTable.value, col, editValue.value, pk)
-    message.success('已更新')
-    editing.value = null
-    await loadTable(activeTable.value)
+    if (formMode.value === 'add') {
+      // 新增：跳过未填且无默认值约束要求外的 NULL 字段，让 DEFAULT 生效
+      const payload: Record<string, string | null> = {}
+      for (const f of fields.value) {
+        if (f.isNull && f.value === '') {
+          const info = columnInfo.value.find((c) => c.name === f.name)
+          if (info?.defaultValue !== null) continue // 交给数据库默认值
+        }
+        payload[f.name] = values[f.name]
+      }
+      await window.mook.db.insert(activeTable.value, payload)
+      message.success('已新增一行')
+    } else {
+      // 编辑：逐字段 UPDATE（参数化，主键定位）
+      for (const f of fields.value) {
+        await window.mook.db.updateCell(
+          activeTable.value,
+          f.name,
+          values[f.name],
+          editPk.value
+        )
+      }
+      message.success('已更新')
+    }
+    formShow.value = false
+    await refresh()
   } catch (e) {
-    message.error('更新失败：' + String(e))
+    message.error('保存失败：' + String(e))
+  } finally {
+    formSaving.value = false
   }
+}
+
+function deleteRow(rowIndex: number): void {
+  if (!activeTable.value || !primaryKeys.value.length) {
+    message.warning('该表没有主键，无法删除，可用 SQL 删除')
+    return
+  }
+  const row = rows.value[rowIndex]
+  const pk = primaryKeys.value.map((name) => ({ name, value: row[name] }))
+  const label = cellText(row[primaryKeys.value[0]])
+  dialog.warning({
+    title: '删除该行',
+    content: `确定从 ${activeTable.value} 删除主键为「${label}」的行吗？此操作不可撤销。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await window.mook.db.deleteRow(activeTable.value!, pk)
+        message.success('已删除')
+        await refresh()
+      } catch (e) {
+        message.error('删除失败：' + String(e))
+      }
+    }
+  })
 }
 
 async function runSql(): Promise<void> {
@@ -104,8 +231,8 @@ async function runSql(): Promise<void> {
   }
 }
 
-const shownColumns = () => (sqlMode.value ? sqlColumns.value : columns.value)
-const shownRows = () => (sqlMode.value ? sqlRows.value : rows.value)
+const shownColumns = computed(() => (sqlMode.value ? sqlColumns.value : columns.value))
+const shownRows = computed(() => (sqlMode.value ? sqlRows.value : rows.value))
 
 onMounted(loadTables)
 </script>
@@ -118,12 +245,21 @@ onMounted(loadTables)
     </div>
 
     <div class="body">
-      <!-- 左侧表列表 -->
+      <!-- 左侧表列表（支持筛选） -->
       <aside class="sidebar">
         <div class="side-title">数据表（{{ tables.length }}）</div>
+        <div class="side-filter">
+          <NInput
+            v-model:value="tableFilter"
+            size="small"
+            clearable
+            :bordered="false"
+            placeholder="筛选表名"
+          />
+        </div>
         <div class="table-list">
           <button
-            v-for="t in tables"
+            v-for="t in filteredTables"
             :key="t"
             type="button"
             class="table-item"
@@ -132,6 +268,7 @@ onMounted(loadTables)
           >
             {{ t }}
           </button>
+          <div v-if="!filteredTables.length" class="side-empty">没有匹配的表</div>
         </div>
       </aside>
 
@@ -143,7 +280,7 @@ onMounted(loadTables)
             type="textarea"
             size="small"
             :rows="3"
-            placeholder="输入 SQL，如：SELECT * FROM movies LIMIT 50；双击单元格可直接编辑（仅限有主键的表）"
+            placeholder="输入 SQL，如：SELECT * FROM movies LIMIT 50；Ctrl+Enter 执行"
             class="sql-input"
             @keydown.ctrl.enter="runSql"
           />
@@ -161,8 +298,16 @@ onMounted(loadTables)
         <div class="meta-row">
           <template v-if="sqlMode">SQL 结果（{{ sqlRows.length }} 行）</template>
           <template v-else-if="activeTable">
-            {{ activeTable }} · 共 {{ total }} 行，最多显示前 200 行
-            <span v-if="!primaryKeys.length" class="warn">（无主键，不可双击编辑）</span>
+            <div class="meta-left">
+              {{ activeTable }} · 共 {{ total }} 行
+              <span v-if="!primaryKeys.length" class="warn">（无主键，不可增删改）</span>
+            </div>
+            <div class="meta-actions">
+              <NButton size="tiny" type="primary" :disabled="!primaryKeys.length" @click="openAdd">
+                新增一行
+              </NButton>
+              <NButton size="tiny" @click="refresh">刷新</NButton>
+            </div>
           </template>
         </div>
 
@@ -172,40 +317,83 @@ onMounted(loadTables)
               <thead>
                 <tr>
                   <th class="idx">#</th>
-                  <th v-for="c in shownColumns()" :key="c">{{ c }}</th>
+                  <th v-if="!sqlMode && primaryKeys.length" class="ops">操作</th>
+                  <th v-for="c in shownColumns" :key="c">{{ c }}</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(row, i) in shownRows()" :key="i">
+                <tr v-for="(row, i) in shownRows" :key="i">
                   <td class="idx">{{ i + 1 }}</td>
+                  <td v-if="!sqlMode && primaryKeys.length" class="ops">
+                    <button type="button" class="row-btn" @click="openEdit(i)">编辑</button>
+                    <button type="button" class="row-btn danger" @click="deleteRow(i)">删除</button>
+                  </td>
                   <td
-                    v-for="c in shownColumns()"
+                    v-for="c in shownColumns"
                     :key="c"
                     class="cell"
                     :title="cellText(row[c])"
-                    @dblclick="startEdit(i, c)"
+                    @dblclick="!sqlMode && openEdit(i)"
                   >
-                    <input
-                      v-if="editing && editing.row === i && editing.col === c"
-                      v-model="editValue"
-                      class="cell-input"
-                      autofocus
-                      @keydown.enter.prevent="commitEdit"
-                      @keydown.esc="editing = null"
-                      @blur="commitEdit"
-                    />
-                    <span v-else :class="{ nullv: row[c] === null || row[c] === undefined }">
+                    <span :class="{ nullv: row[c] === null || row[c] === undefined }">
                       {{ cellText(row[c]) }}
                     </span>
                   </td>
                 </tr>
               </tbody>
             </table>
-            <div v-if="!shownRows().length" class="empty">暂无数据</div>
+            <div v-if="!shownRows.length" class="empty">暂无数据</div>
           </div>
         </NSpin>
+
+        <!-- 分页（仅表浏览模式） -->
+        <div v-if="!sqlMode && totalPages > 1" class="pager">
+          <NButton size="tiny" :disabled="page <= 0" @click="gotoPage(page - 1)">上一页</NButton>
+          <span class="pg">{{ page + 1 }} / {{ totalPages }}</span>
+          <NButton size="tiny" :disabled="page >= totalPages - 1" @click="gotoPage(page + 1)">
+            下一页
+          </NButton>
+        </div>
       </section>
     </div>
+
+    <!-- 新增 / 编辑弹窗 -->
+    <NModal
+      :show="formShow"
+      preset="card"
+      :title="formMode === 'add' ? `新增一行 · ${activeTable}` : `编辑一行 · ${activeTable}`"
+      :style="{ width: '680px' }"
+      @update:show="(v: boolean) => (formShow = v)"
+    >
+      <div class="form-list">
+        <div v-for="f in fields" :key="f.name" class="form-field">
+          <div class="ff-label">
+            <span class="ff-name" :class="{ pk: columnInfo.find((c) => c.name === f.name)?.pk }">
+              {{ f.name }}
+              <em v-if="f.type" class="ff-type">{{ f.type }}</em>
+            </span>
+            <NCheckbox v-model:checked="f.isNull" size="small">NULL</NCheckbox>
+          </div>
+          <NInput
+            v-model:value="f.value"
+            type="textarea"
+            size="small"
+            :rows="2"
+            :disabled="formMode === 'edit' && primaryKeys.includes(f.name)"
+            :placeholder="f.isNull ? '（NULL）' : '输入值，数字/JSON 按文本写入，由数据库转换'"
+          />
+        </div>
+      </div>
+      <template #footer>
+        <div class="form-foot">
+          <span class="ff-hint">空值勾选 NULL；有默认值的字段新增时留空则使用默认值</span>
+          <NButton size="small" @click="formShow = false">取消</NButton>
+          <NButton size="small" type="primary" :loading="formSaving" @click="saveForm">
+            保存
+          </NButton>
+        </div>
+      </template>
+    </NModal>
   </div>
 </template>
 
@@ -250,10 +438,25 @@ onMounted(loadTables)
   border-bottom: 1px solid #f0f1f4;
   flex-shrink: 0;
 }
+.side-filter {
+  padding: 6px 8px;
+  border-bottom: 1px solid #f0f1f4;
+  background: #fafbfc;
+  flex-shrink: 0;
+}
+.side-filter :deep(.n-input) {
+  background: transparent;
+}
 .table-list {
   flex: 1;
   overflow-y: auto;
   padding: 4px;
+}
+.side-empty {
+  padding: 16px 10px;
+  font-size: 12px;
+  color: #b0b5bd;
+  text-align: center;
 }
 .table-item {
   display: block;
@@ -307,6 +510,14 @@ onMounted(loadTables)
   font-size: 12px;
   color: #7a808a;
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.meta-actions {
+  display: flex;
+  gap: 6px;
 }
 .warn {
   color: #d03050;
@@ -322,6 +533,7 @@ onMounted(loadTables)
   border-collapse: collapse;
   font-size: 12.5px;
   white-space: nowrap;
+  width: 100%;
 }
 .grid th,
 .grid td {
@@ -344,6 +556,24 @@ onMounted(loadTables)
   text-align: right;
   max-width: 48px !important;
 }
+.ops {
+  white-space: nowrap;
+  max-width: none !important;
+}
+.row-btn {
+  border: none;
+  background: transparent;
+  color: #3b5bff;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.row-btn:hover {
+  text-decoration: underline;
+}
+.row-btn.danger {
+  color: #d03050;
+}
 .cell {
   cursor: pointer;
   overflow: hidden;
@@ -351,14 +581,6 @@ onMounted(loadTables)
 }
 .cell:hover {
   background: #fafbfc;
-}
-.cell-input {
-  width: 100%;
-  min-width: 120px;
-  padding: 3px 6px;
-  border: 1px solid var(--accent, #1f2329);
-  border-radius: 5px;
-  font-size: 12.5px;
 }
 .nullv {
   color: #b0b5bd;
@@ -369,5 +591,65 @@ onMounted(loadTables)
   text-align: center;
   font-size: 13px;
   color: #9aa0aa;
+}
+.pager {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+.pg {
+  font-size: 12.5px;
+  color: #5b616c;
+}
+/* 弹窗表单 */
+.form-list {
+  max-height: 62vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 4px;
+}
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ff-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ff-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #3a3f45;
+}
+.ff-name.pk {
+  color: #1f2329;
+}
+.ff-name.pk::after {
+  content: ' 🔑';
+  font-size: 11px;
+}
+.ff-type {
+  font-style: normal;
+  font-weight: 400;
+  color: #b0b5bd;
+  font-size: 11px;
+  margin-left: 4px;
+}
+.form-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ff-hint {
+  flex: 1;
+  font-size: 11.5px;
+  color: #b0b5bd;
 }
 </style>

@@ -8,6 +8,7 @@ import type {
   ProgressKind,
   GameCompletion
 } from '../../../shared/types'
+import { recordTombstone } from '../../services/sync/syncTombstones'
 
 // ========== 海报墙 / 截图（结构同构，软删除） ==========
 type ImageCollectionKind = 'poster' | 'screenshot'
@@ -52,9 +53,14 @@ class ImageCollectionDao {
       )
       .run(id, parentId, imagePath, new Date().toISOString())
   }
-  remove(kind: ImageCollectionKind, id: string): void {
-    const { table } = IMG_CFG[kind]
-    this.db().prepare(`DELETE FROM ${table} WHERE id=?`).run(id)
+  remove(kind: ImageCollectionKind, id: string): string | null {
+    const { table, fk } = IMG_CFG[kind]
+    const db = this.db()
+    const row = db.prepare(`SELECT ${fk} AS pid FROM ${table} WHERE id=?`).get(id) as
+      | { pid: string }
+      | undefined
+    db.prepare(`DELETE FROM ${table} WHERE id=?`).run(id)
+    return row?.pid ?? null
   }
 }
 export const imageCollectionDao = new ImageCollectionDao()
@@ -107,8 +113,14 @@ class ExcerptDao {
         .run(strOrNull(e.chapter), e.content, strOrNull(e.comment), now, e.id)
     }
   }
-  remove(id: string): void {
-    this.db().prepare(`DELETE FROM book_excerpts WHERE id=?`).run(id)
+  remove(id: string): string | null {
+    const db = this.db()
+    const row = db
+      .prepare(`SELECT book_id AS pid FROM book_excerpts WHERE id=?`)
+      .get(id) as { pid: string } | undefined
+    recordTombstone('book_excerpts', id)
+    db.prepare(`DELETE FROM book_excerpts WHERE id=?`).run(id)
+    return row?.pid ?? null
   }
 }
 export const excerptDao = new ExcerptDao()
@@ -212,17 +224,29 @@ class ProgressDao {
   update(kind: ProgressKind, e: ProgressEntry): void {
     this.write(kind, e, false)
   }
-  toggleDone(kind: ProgressKind, id: string, done: boolean): void {
-    const { table, doneCol, dateCol } = PROG_CFG[kind]
-    this.db()
-      .prepare(
-        `UPDATE ${table} SET ${doneCol}=?, ${dateCol}=?, updated_at=? WHERE id=?`
-      )
-      .run(done ? 1 : 0, done ? new Date().toISOString() : null, new Date().toISOString(), id)
+  toggleDone(kind: ProgressKind, id: string, done: boolean): string | null {
+    const { table, fk, doneCol, dateCol } = PROG_CFG[kind]
+    const db = this.db()
+    db.prepare(
+      `UPDATE ${table} SET ${doneCol}=?, ${dateCol}=?, updated_at=? WHERE id=?`
+    ).run(done ? 1 : 0, done ? new Date().toISOString() : null, new Date().toISOString(), id)
+    const row = db.prepare(`SELECT ${fk} AS pid FROM ${table} WHERE id=?`).get(id) as
+      | { pid: string }
+      | undefined
+    return row?.pid ?? null
   }
-  remove(kind: ProgressKind, id: string): void {
+  parentIdOf(kind: ProgressKind, id: string): string | null {
+    const { table, fk } = PROG_CFG[kind]
+    const row = this.db().prepare(`SELECT ${fk} AS pid FROM ${table} WHERE id=?`).get(id) as
+      | { pid: string }
+      | undefined
+    return row?.pid ?? null
+  }
+  remove(kind: ProgressKind, id: string): string | null {
+    const pid = this.parentIdOf(kind, id)
     const { table } = PROG_CFG[kind]
     this.db().prepare(`DELETE FROM ${table} WHERE id=?`).run(id)
+    return pid
   }
 }
 export const progressDao = new ProgressDao()
@@ -264,8 +288,13 @@ class CompletionDao {
       )
       .run(c.id, c.gameId, c.completionDate, c.note, now, now)
   }
-  remove(id: string): void {
-    this.db().prepare(`DELETE FROM game_completions WHERE id=?`).run(id)
+  remove(id: string): string | null {
+    const db = this.db()
+    const row = db
+      .prepare(`SELECT game_id AS pid FROM game_completions WHERE id=?`)
+      .get(id) as { pid: string } | undefined
+    db.prepare(`DELETE FROM game_completions WHERE id=?`).run(id)
+    return row?.pid ?? null
   }
 }
 export const completionDao = new CompletionDao()

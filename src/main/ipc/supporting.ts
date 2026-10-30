@@ -20,8 +20,20 @@ import type {
   ProgressEntry,
   GameCompletion
 } from '../../shared/types'
+import { touchParent } from '../services/sync/touchParent'
 
 const reviewImageCategory = 'reviews'
+
+// 子组 kind → 父表（增删改后 touch 父行，保证增量同步随父行整组推送）
+const IMG_PARENT_TABLE: Record<'poster' | 'screenshot', string> = {
+  poster: 'movies',
+  screenshot: 'games'
+}
+const PROGRESS_PARENT_TABLE: Record<ProgressKind, string> = {
+  episode: 'movies',
+  chapter: 'books',
+  level: 'games'
+}
 
 export function registerSupportingIpc(): void {
   // ---- 评价 ----
@@ -57,11 +69,13 @@ export function registerSupportingIpc(): void {
       const dir = sub ?? (kind === 'poster' ? 'posterimgs' : 'screenshots')
       const paths = files.map((f) => importImage(category, parentId, f, dir))
       for (const p of paths) imageCollectionDao.add(kind, randomUUID(), parentId, p)
+      touchParent(IMG_PARENT_TABLE[kind], parentId)
       return imageCollectionDao.list(kind, parentId)
     }
   )
   ipcMain.handle('image-collection:remove', (_e, kind: 'poster' | 'screenshot', id: string) => {
-    imageCollectionDao.remove(kind, id)
+    const parentId = imageCollectionDao.remove(kind, id)
+    if (parentId) touchParent(IMG_PARENT_TABLE[kind], parentId)
     return true
   })
 
@@ -69,10 +83,12 @@ export function registerSupportingIpc(): void {
   ipcMain.handle('excerpt:list', (_e, bookId: string) => excerptDao.list(bookId))
   ipcMain.handle('excerpt:save', (_e, e: BookExcerpt & { isNew: boolean }) => {
     excerptDao.upsert(e)
+    touchParent('books', e.bookId)
     return true
   })
   ipcMain.handle('excerpt:delete', (_e, id: string) => {
-    excerptDao.remove(id)
+    const bookId = excerptDao.remove(id)
+    if (bookId) touchParent('books', bookId)
     return true
   })
 
@@ -83,17 +99,20 @@ export function registerSupportingIpc(): void {
   ipcMain.handle('progress:save', (_e, kind: ProgressKind, e: ProgressEntry, isNew: boolean) => {
     if (isNew) progressDao.insert(kind, e)
     else progressDao.update(kind, e)
+    touchParent(PROGRESS_PARENT_TABLE[kind], e.parentId)
     return true
   })
   ipcMain.handle(
     'progress:toggle',
     (_e, kind: ProgressKind, id: string, done: boolean) => {
-      progressDao.toggleDone(kind, id, done)
+      const parentId = progressDao.toggleDone(kind, id, done)
+      if (parentId) touchParent(PROGRESS_PARENT_TABLE[kind], parentId)
       return true
     }
   )
   ipcMain.handle('progress:delete', (_e, kind: ProgressKind, id: string) => {
-    progressDao.remove(kind, id)
+    const parentId = progressDao.remove(kind, id)
+    if (parentId) touchParent(PROGRESS_PARENT_TABLE[kind], parentId)
     return true
   })
   ipcMain.handle('progress:new-id', () => randomUUID())
@@ -120,10 +139,12 @@ export function registerSupportingIpc(): void {
   ipcMain.handle('completion:list', (_e, gameId: string) => completionDao.list(gameId))
   ipcMain.handle('completion:add', (_e, c: GameCompletion) => {
     completionDao.add(c)
+    touchParent('games', c.gameId)
     return true
   })
   ipcMain.handle('completion:delete', (_e, id: string) => {
-    completionDao.remove(id)
+    const gameId = completionDao.remove(id)
+    if (gameId) touchParent('games', gameId)
     return true
   })
 }

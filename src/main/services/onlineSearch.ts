@@ -263,9 +263,14 @@ export async function bgmDetail(id: number): Promise<BgmDetail> {
 
 export async function downloadRemoteImage(
   url: string,
-  kind: 'tmdb' | 'bgm'
+  kind: 'tmdb' | 'bgm' | 'vip'
 ): Promise<Buffer> {
-  const proxy = kind === 'tmdb' ? prefs.get('tmdbProxy', '') : prefs.get('bangumiProxy', '')
+  const proxy =
+    kind === 'tmdb'
+      ? prefs.get('tmdbProxy', '')
+      : kind === 'bgm'
+        ? prefs.get('bangumiProxy', '')
+        : ''
   applyProxy(proxy)
   const buf = await fetchBytes(url, {
     'User-Agent': kind === 'bgm' ? UA : 'Mozilla/5.0'

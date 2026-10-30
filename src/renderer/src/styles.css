@@ -52,8 +52,6 @@ textarea,
   height: var(--titlebar-height);
   display: flex;
   align-items: stretch;
-  /* 右侧 138px（3×46）留给系统原生标题按钮覆盖层 */
-  padding-right: 138px;
   -webkit-app-region: drag;
   user-select: none;
   flex: 0 0 auto;
@@ -61,10 +59,11 @@ textarea,
 }
 
 .app-titlebar .tb-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.7);
+  color: rgba(0, 0, 0, 0.78);
   letter-spacing: 0.2px;
+  line-height: 1;
 }
 
 /* 中部可拖拽空白区，占满标题栏剩余宽度 */

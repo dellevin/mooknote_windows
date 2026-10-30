@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3'
 import { getDb } from '../index'
 import { parseStringList, encodeList, numOrNull, strOrNull } from '../util'
 import type { Book, BookInput } from '../../../shared/types'
+import { recordTombstone } from '../../services/sync/syncTombstones'
 
 interface BookRow {
   id: string
@@ -175,6 +176,7 @@ class BookDao {
       d.prepare('DELETE FROM book_people WHERE book_id=?').run(bid)
       d.prepare('DELETE FROM book_characters WHERE book_id=?').run(bid)
       d.prepare('DELETE FROM playlist_items WHERE item_id=?').run(bid)
+      recordTombstone('books', bid)
       d.prepare('DELETE FROM books WHERE id=?').run(bid)
     })
     tx(id)

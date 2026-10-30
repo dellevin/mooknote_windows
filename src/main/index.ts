@@ -17,6 +17,8 @@ import { registerStatsIpc } from './ipc/stats'
 import { registerSearchIpc } from './ipc/search'
 import { registerBackupIpc } from './ipc/backup'
 import { registerTagIpc } from './ipc/tag'
+import { registerIncSyncIpc } from './ipc/incSync'
+import { downloadRemoteImage } from './services/onlineSearch'
 
 // 本地图片：mookimg:///<绝对路径>
 // 不能注册为 standard：standard 协议会按 host:port 解析，吞掉 Windows 盘符冒号
@@ -24,6 +26,11 @@ import { registerTagIpc } from './ipc/tag'
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'mookimg',
+    privileges: { secure: true, supportFetchAPI: true, stream: true, corsEnabled: true }
+  },
+  {
+    // 远程封面（TMDB/Bangumi）经主进程代理转发，见 protocol.handle('mookremote')
+    scheme: 'mookremote',
     privileges: { secure: true, supportFetchAPI: true, stream: true, corsEnabled: true }
   }
 ])
@@ -59,12 +66,6 @@ function createWindow(): void {
     show: false,
     frame: false,
     titleBarStyle: 'hidden',
-    // 原生标题按钮覆盖层：自带 Snap Layouts、关闭悬停变红、系统暗色/对齐。
-    titleBarOverlay: {
-      color: '#f3f3f5',
-      symbolColor: '#1b1b1b',
-      height: 32
-    },
     backgroundColor: '#f3f3f5',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
@@ -76,6 +77,11 @@ function createWindow(): void {
 
   win.on('ready-to-show', () => win.show())
 
+  // 通知渲染层最大化状态，用于切换还原图标
+  const pushMax = (): void => win.webContents.send('win:max-changed', win.isMaximized())
+  win.on('maximize', pushMax)
+  win.on('unmaximize', pushMax)
+
   win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
@@ -85,7 +91,7 @@ function createWindow(): void {
   // 图片走自定义 mookimg: 协议，一旦顶层导航，整个应用外壳会被替换成
   // 一张黑底图片且无任何控件（看似卡死）。这里禁止应用窗口跳转到图片协议。
   win.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith('mookimg:')) event.preventDefault()
+    if (url.startsWith('mookimg:') || url.startsWith('mookremote:')) event.preventDefault()
   })
 
   if (process.env['ELECTRON_RENDERER_URL']) {
@@ -110,6 +116,7 @@ app.whenReady().then(() => {
   registerSearchIpc()
   registerBackupIpc()
   registerTagIpc()
+  registerIncSyncIpc()
 
   // 图片预览「另存为」：把 mookimg 对应的本地文件复制到用户选择的目录
   ipcMain.handle('image:save-as', async (_e, src: string, suggested?: string) => {
@@ -137,6 +144,28 @@ app.whenReady().then(() => {
     const filePath = resolveImagePath(raw)
     if (!filePath) return new Response('Not Found', { status: 404 })
     return net.fetch(pathToFileURL(filePath).toString())
+  })
+
+  // 远程封面代理：mookremote://<tmdb|bgm|vip>/?u=<encodeURIComponent(远程地址)>
+  // 渲染层 <img> 直连远程地址不走 undici 代理，这里由主进程按各源配置的代理取回再返回
+  protocol.handle('mookremote', async (request) => {
+    try {
+      const u = new URL(request.url)
+      const source = u.hostname as 'tmdb' | 'bgm' | 'vip'
+      const remote = u.searchParams.get('u') ?? ''
+      if (!['tmdb', 'bgm', 'vip'].includes(source) || !/^https?:\/\//i.test(remote)) {
+        return new Response('Bad Request', { status: 400 })
+      }
+      const buf = await downloadRemoteImage(remote, source)
+      const ext = path.extname(new URL(remote).pathname).toLowerCase()
+      const mime =
+        ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : ext === '.gif' ? 'image/gif' : 'image/jpeg'
+      const ab = new ArrayBuffer(buf.length)
+      new Uint8Array(ab).set(buf)
+      return new Response(ab, { headers: { 'Content-Type': mime, 'Cache-Control': 'max-age=86400' } })
+    } catch {
+      return new Response('Bad Gateway', { status: 502 })
+    }
   })
 
   createWindow()

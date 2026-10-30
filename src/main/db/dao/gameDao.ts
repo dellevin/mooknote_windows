@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3'
 import { getDb } from '../index'
 import { parseStringList, encodeList, numOrNull, strOrNull } from '../util'
 import type { Game, GameInput } from '../../../shared/types'
+import { recordTombstone } from '../../services/sync/syncTombstones'
 
 interface GameRow {
   id: string
@@ -179,6 +180,7 @@ class GameDao {
       d.prepare('DELETE FROM game_people WHERE game_id=?').run(gid)
       d.prepare('DELETE FROM game_characters WHERE game_id=?').run(gid)
       d.prepare('DELETE FROM playlist_items WHERE item_id=?').run(gid)
+      recordTombstone('games', gid)
       d.prepare('DELETE FROM games WHERE id=?').run(gid)
     })
     tx(id)

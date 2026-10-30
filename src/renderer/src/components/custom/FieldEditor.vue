@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import {
   NInput,
   NInputNumber,
-  NSelect,
   NRate,
   NDynamicTags,
   NDatePicker,
@@ -26,9 +25,13 @@ function set(v: CustomFieldValue): void {
   emit('update:modelValue', v)
 }
 
-const statusOptions = computed(() =>
-  props.field.options.map((o) => ({ label: o, value: o }))
-)
+const statusVal = computed<string | null>({
+  get: () => (typeof props.modelValue === 'string' ? props.modelValue : null),
+  set: (v) => set(v)
+})
+function toggleStatus(o: string): void {
+  statusVal.value = statusVal.value === o ? null : o
+}
 
 // 日期：存储 ISO 字符串，控件用毫秒时间戳
 const dateTs = computed<number | null>({
@@ -106,14 +109,18 @@ async function pickImages(): Promise<void> {
       @update:value="set"
     />
     <NDynamicTags v-else-if="field.type === 'multiText'" v-model:value="tags" />
-    <NSelect
-      v-else-if="field.type === 'status'"
-      :value="(modelValue as string) ?? null"
-      :options="statusOptions"
-      :placeholder="'选择' + field.label"
-      clearable
-      @update:value="(v: string | null) => set(v)"
-    />
+    <div v-else-if="field.type === 'status'" class="status-chips">
+      <button
+        v-for="o in field.options"
+        :key="o"
+        type="button"
+        class="status-chip"
+        :class="{ on: statusVal === o }"
+        @click="toggleStatus(o)"
+      >
+        {{ o }}
+      </button>
+    </div>
     <NRate
       v-else-if="field.type === 'rating'"
       :value="numVal ?? 0"
@@ -179,6 +186,34 @@ async function pickImages(): Promise<void> {
 </template>
 
 <style scoped>
+.status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+.status-chip {
+  font-size: 13px;
+  padding: 5px 14px;
+  border-radius: 8px;
+  border: 1px solid #eceef2;
+  background: #f4f5f8;
+  color: #4b5563;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background-color 0.15s,
+    border-color 0.15s;
+}
+.status-chip:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, #fff);
+}
+.status-chip.on {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 500;
+}
 .num {
   width: 160px;
 }

@@ -91,7 +91,7 @@ async function remove(e: BookExcerpt): Promise<void> {
           <p v-if="e.comment" class="comment">感悟：{{ e.comment }}</p>
           <div class="actions">
             <NButton size="tiny" quaternary @click="openEdit(e)">编辑</NButton>
-            <NPopconfirm @positive-click="remove(e)">
+            <NPopconfirm to="body" @positive-click="remove(e)">
               <template #trigger>
                 <NButton size="tiny" quaternary type="error">删除</NButton>
               </template>

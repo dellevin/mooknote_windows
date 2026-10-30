@@ -46,7 +46,8 @@ watch(
   () => [props.show, props.id],
   ([s]) => {
     if (s) void load()
-  }
+  },
+  { immediate: true }
 )
 
 function askDelete(): void {
@@ -65,24 +66,46 @@ function askDelete(): void {
   })
 }
 
-const tagFields: { key: 'platforms' | 'genres' | 'versions'; label: string }[] = [
+const tagFields: {
+  key: 'developer' | 'platforms' | 'genres' | 'versions' | 'purchasePlatforms'
+  label: string
+}[] = [
+  { key: 'developer', label: '开发者' },
   { key: 'platforms', label: '平台' },
   { key: 'genres', label: '类型' },
-  { key: 'versions', label: '版本' }
+  { key: 'versions', label: '版本' },
+  { key: 'purchasePlatforms', label: '购入平台' }
 ]
-const playTimeText = (g: Game): string =>
-  g.playTimeHours || g.playTimeMinutes
-    ? `${g.playTimeHours} 小时 ${g.playTimeMinutes} 分`
-    : ''
+const playTimeText = (g: Game): string => {
+  const parts: string[] = []
+  if (g.playTimeHours) parts.push(`${g.playTimeHours} 小时`)
+  if (g.playTimeMinutes) parts.push(`${g.playTimeMinutes} 分`)
+  return parts.join(' ')
+}
+const STATUS_TYPE: Record<string, 'info' | 'success' | 'warning' | 'default'> = {
+  want_to_play: 'info',
+  playing: 'success',
+  completed: 'warning',
+  abandoned: 'default'
+}
 </script>
 
 <template>
   <NModal :show="show" @update:show="(v: boolean) => emit('update:show', v)" :auto-focus="false">
     <div class="detail-card">
-      <NSpin :show="loading">
-        <NEmpty v-if="!game && !loading" description="记录不存在或已删除" />
-        <template v-else-if="game">
-          <div class="hero">
+      <div v-if="loading" class="state">
+        <NSpin size="medium" />
+      </div>
+      <NEmpty v-else-if="!game" class="state" description="记录不存在或已删除" />
+      <template v-else>
+        <div class="hero" :class="{ 'no-cover': !toImgUrl(game.coverPath) }">
+            <img
+              v-if="toImgUrl(game.coverPath)"
+              class="hero-bg"
+              :src="toImgUrl(game.coverPath)"
+              alt=""
+            />
+            <div class="hero-mask"></div>
             <div class="cover">
               <img v-if="toImgUrl(game.coverPath)" :src="toImgUrl(game.coverPath)" />
               <div v-else class="cover-empty">无封面</div>
@@ -90,10 +113,10 @@ const playTimeText = (g: Game): string =>
             <div class="head-info">
               <h2 class="title">{{ game.title }}</h2>
               <div class="badges">
-                <NTag size="small" type="primary" :bordered="false">
+                <NTag size="small" :type="STATUS_TYPE[game.status]" round :bordered="false">
                   {{ GAME_STATUS_LABELS[game.status] }}
                 </NTag>
-                <NTag size="small" :bordered="false">
+                <NTag size="small" round :bordered="false" class="cat-tag">
                   {{ GAME_CATEGORY_LABELS[game.category] ?? game.category }}
                 </NTag>
               </div>
@@ -102,11 +125,21 @@ const playTimeText = (g: Game): string =>
                 <span class="rating-num">{{ game.rating.toFixed(1) }}</span>
               </div>
               <div class="kv">
-                <span v-if="game.releaseDate">发售：{{ formatDate(game.releaseDate) }}</span>
-                <span v-if="playTimeText(game)">时长：{{ playTimeText(game) }}</span>
-                <span v-if="game.playCount">玩过 {{ game.playCount }} 次</span>
-                <span v-if="game.purchaseDate">购入：{{ formatDate(game.purchaseDate) }}</span>
-                <span v-if="game.purchasePrice">价格：{{ game.purchasePrice }}</span>
+                <span v-if="game.releaseDate" class="chip">
+                  <i>发售</i>{{ formatDate(game.releaseDate) }}
+                </span>
+                <span v-if="playTimeText(game)" class="chip">
+                  <i>时长</i>{{ playTimeText(game) }}
+                </span>
+                <span v-if="game.playCount" class="chip">
+                  <i>周目</i>{{ game.playCount }} 次
+                </span>
+                <span v-if="game.purchaseDate" class="chip">
+                  <i>购入</i>{{ formatDate(game.purchaseDate) }}
+                </span>
+                <span v-if="game.purchasePrice" class="chip">
+                  <i>价格</i>{{ game.purchasePrice }}
+                </span>
               </div>
             </div>
           </div>
@@ -114,10 +147,6 @@ const playTimeText = (g: Game): string =>
           <div class="body">
             <NTabs type="line" animated size="small">
               <NTabPane name="info" tab="资料">
-                <div v-if="game.developer" class="tag-row">
-                  <span class="tag-label">开发者</span>
-                  <span class="dev">{{ game.developer }}</span>
-                </div>
                 <div
                   v-for="f in tagFields"
                   :key="f.key"
@@ -176,14 +205,13 @@ const playTimeText = (g: Game): string =>
             </NTabs>
           </div>
 
-          <div class="footer">
-            <NSpace justify="end">
-              <NButton type="error" quaternary @click="askDelete">删除</NButton>
-              <NButton type="primary" @click="emit('edit', game.id)">编辑</NButton>
-            </NSpace>
-          </div>
-        </template>
-      </NSpin>
+        <div class="footer">
+          <NSpace justify="end">
+            <NButton type="error" quaternary @click="askDelete">删除</NButton>
+            <NButton type="primary" @click="emit('edit', game.id)">编辑</NButton>
+          </NSpace>
+        </div>
+      </template>
     </div>
   </NModal>
 </template>
@@ -192,6 +220,7 @@ const playTimeText = (g: Game): string =>
 .detail-card {
   width: 760px;
   max-width: 94vw;
+  height: 86vh;
   max-height: 86vh;
   background: #fff;
   border-radius: 14px;
@@ -199,20 +228,58 @@ const playTimeText = (g: Game): string =>
   display: flex;
   flex-direction: column;
 }
+.state {
+  flex: 1;
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 游戏商店风格：封面虚化铺底 + 深色遮罩，盒装箱绘浮于左侧 */
 .hero {
+  position: relative;
   display: flex;
   gap: 22px;
-  padding: 24px 26px 18px;
-  background: linear-gradient(135deg, #f3f5fb, #eef1f8);
+  padding: 26px 28px 22px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #232838, #171a24 60%, #10131c);
+}
+.hero.no-cover {
+  background: linear-gradient(135deg, #2b3350, #1b2030 55%, #121521);
+}
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(30px) brightness(0.55) saturate(1.25);
+  transform: scale(1.18);
+  pointer-events: none;
+  user-select: none;
+}
+.hero-mask {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    rgba(13, 16, 24, 0.72) 0%,
+    rgba(13, 16, 24, 0.45) 45%,
+    rgba(13, 16, 24, 0.62) 100%
+  );
+  pointer-events: none;
 }
 .cover {
-  flex: 0 0 150px;
-  width: 150px;
+  position: relative;
+  z-index: 1;
+  flex: 0 0 148px;
+  width: 148px;
   aspect-ratio: 3 / 4;
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-  background: #e2e5ee;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  background: rgba(255, 255, 255, 0.08);
 }
 .cover img {
   width: 100%;
@@ -224,44 +291,73 @@ const playTimeText = (g: Game): string =>
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #9aa0ac;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
 }
 .head-info {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 .title {
-  font-size: 22px;
-  color: #1f2329;
-  margin-bottom: 6px;
+  font-size: 23px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 10px;
+  line-height: 1.3;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
 }
 .badges {
   display: flex;
   gap: 8px;
-  margin: 4px 0 12px;
+  margin-bottom: 12px;
+}
+.cat-tag {
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: #e8ebf5 !important;
 }
 .rating-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 .rating-num {
   font-size: 20px;
   font-weight: 700;
-  color: #f5a623;
+  color: #ffc53d;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
 }
 .kv {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 18px;
-  font-size: 13px;
-  color: #5b616c;
+  gap: 8px;
+  margin-top: auto;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 3px 10px;
+}
+.chip i {
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
 }
 .body {
   padding: 18px 26px;
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
 }
 .tag-row {
   display: flex;
@@ -270,29 +366,36 @@ const playTimeText = (g: Game): string =>
   margin-bottom: 12px;
 }
 .tag-label {
-  flex: 0 0 52px;
+  flex: 0 0 56px;
   font-size: 13px;
   color: #8a909c;
-  padding-top: 2px;
-}
-.dev {
-  font-size: 13px;
-  color: #3d434d;
+  padding-top: 3px;
 }
 .section-title {
   font-size: 14px;
   font-weight: 600;
   color: #1f2329;
-  margin: 8px 0;
+  margin: 14px 0 8px;
+}
+.summary {
+  background: #f7f8fa;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+.summary .section-title {
+  margin-top: 0;
 }
 .summary p {
   font-size: 13.5px;
   line-height: 1.8;
   color: #3d434d;
   white-space: pre-wrap;
+  margin: 0;
 }
 .footer {
   padding: 12px 26px;
   border-top: 1px solid #f0f1f4;
+  flex-shrink: 0;
 }
 </style>

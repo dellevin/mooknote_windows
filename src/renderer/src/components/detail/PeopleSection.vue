@@ -149,7 +149,7 @@ async function onPersonCreated(p: Person): Promise<void> {
               <span class="chip-name">{{ l.name }}</span>
               <span v-if="l.characterName" class="chip-char">饰 {{ l.characterName }}</span>
             </div>
-            <NPopconfirm @positive-click="remove(l)">
+            <NPopconfirm to="body" @positive-click="remove(l)">
               <template #trigger>
                 <NButton size="tiny" quaternary type="error">✕</NButton>
               </template>

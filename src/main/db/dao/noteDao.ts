@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3'
 import { getDb } from '../index'
 import { parseStringList, encodeList } from '../util'
 import type { Note, NoteInput } from '../../../shared/types'
+import { recordTombstone } from '../../services/sync/syncTombstones'
 
 interface NoteRow {
   id: string
@@ -148,6 +149,7 @@ class NoteDao {
   }
 
   permanentDelete(id: string): void {
+    recordTombstone('notes', id)
     this.db().prepare(`DELETE FROM notes WHERE id=?`).run(id)
   }
 

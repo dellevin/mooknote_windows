@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3'
 import { getDb } from '../index'
 import { parseStringList, encodeList, strOrNull } from '../util'
 import type { Character, CharacterInput, CharacterKind } from '../../../shared/types'
+import { recordTombstone } from '../../services/sync/syncTombstones'
 
 const CHAR_CFG: Record<
   CharacterKind,
@@ -110,6 +111,7 @@ class CharacterDao {
   }
   remove(kind: CharacterKind, id: string): void {
     const { table } = CHAR_CFG[kind]
+    recordTombstone(table, id)
     this.db().prepare(`DELETE FROM ${table} WHERE id=?`).run(id)
   }
 }

@@ -84,6 +84,25 @@ class StatsDao {
   calendar(mode: 0 | 1): CalendarEntry[] {
     const db = this.db()
     const out: CalendarEntry[] = []
+    // 去重键：本地日期 + 类型 + 作品 id（同一部作品同一天只占一格，
+    // 作品主日期与分集/章节/关卡记录不重复显示，对齐手机版）
+    const seen = new Set<string>()
+    const pushEntry = (
+      kind: CalendarKind,
+      id: string,
+      title: string,
+      cover: string | null,
+      status: string,
+      rating: number | null,
+      dateIso: string,
+      note?: string | null
+    ): void => {
+      const e = this.entry(kind, id, title, cover, status, rating, dateIso, note)
+      const key = `${e.date}|${kind}|${id}`
+      if (seen.has(key)) return
+      seen.add(key)
+      out.push(e)
+    }
 
     const movieRows = db
       .prepare(
@@ -95,7 +114,7 @@ class StatsDao {
       .all() as (CoverRow & { status: string; rating: number | null; d: string })[]
     for (const r of movieRows) {
       if (!r.d) continue
-      out.push(this.entry('movie', r.id, r.title, r.cover, r.status, r.rating, r.d))
+      pushEntry('movie', r.id, r.title, r.cover, r.status, r.rating, r.d)
     }
 
     const bookRows = db
@@ -108,7 +127,29 @@ class StatsDao {
       .all() as (CoverRow & { status: string; rating: number | null; d: string })[]
     for (const r of bookRows) {
       if (!r.d) continue
-      out.push(this.entry('book', r.id, r.title, r.cover, r.status, r.rating, r.d))
+      pushEntry('book', r.id, r.title, r.cover, r.status, r.rating, r.d)
+    }
+
+    // 分集/章节/关卡：仅已完成的记录入历，封面取父作品（对齐手机版）
+    const subTables: { table: string; fk: string; flag: string; consumed: string; kind: CalendarKind; parent: string; parentCover: string }[] = [
+      { table: 'movie_episodes', fk: 'movie_id', flag: 'watched', consumed: 'watch_date', kind: 'movie', parent: 'movies', parentCover: 'poster_path' },
+      { table: 'book_chapters', fk: 'book_id', flag: 'read', consumed: 'read_date', kind: 'book', parent: 'books', parentCover: 'cover_path' },
+      { table: 'game_levels', fk: 'game_id', flag: 'cleared', consumed: 'clear_date', kind: 'game', parent: 'games', parentCover: 'cover_path' }
+    ]
+    for (const t of subTables) {
+      const dateCol = mode === 1 ? `s.${t.consumed}` : 's.created_at'
+      const rows = db
+        .prepare(
+          `SELECT p.id AS pid,p.title,p.${t.parentCover} AS cover,p.status,p.rating,${dateCol} AS d
+           FROM ${t.table} s
+           INNER JOIN ${t.parent} p ON p.id = s.${t.fk}
+           WHERE s.is_deleted=0 AND p.is_deleted=0 AND s.${t.flag}=1
+             AND ${dateCol} IS NOT NULL`
+        )
+        .all() as { pid: string; title: string; cover: string | null; status: string; rating: number | null; d: string }[]
+      for (const r of rows) {
+        pushEntry(t.kind, r.pid, r.title, r.cover, r.status, r.rating, r.d)
+      }
     }
 
     if (mode === 1) {

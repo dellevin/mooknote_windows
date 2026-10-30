@@ -1,3 +1,14 @@
+// 远程封面 -> mookremote 协议 URL。
+// 渲染层 <img> 直连不经过主进程 undici（即不使用设置中的代理），
+// 统一切到该协议由主进程按各源代理配置转发；空地址返回空串。
+export function remoteImg(
+  url: string | null | undefined,
+  source: 'tmdb' | 'bgm' | 'vip'
+): string {
+  if (!url) return ''
+  return `mookremote://${source}/?u=${encodeURIComponent(url)}`
+}
+
 // 磁盘路径 -> mookimg 协议 URL（支持绝对路径与相对 imagesRoot 的逻辑路径）
 export function toImgUrl(absPath: string | null | undefined): string {
   if (!absPath) return ''

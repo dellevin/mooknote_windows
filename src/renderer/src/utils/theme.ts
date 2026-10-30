@@ -18,13 +18,18 @@ interface FontOption {
   /** @font-face 注册名（系统默认项为完整字体栈） */
   family: string
   url: string | null
+  /**
+   * 预览方块的垂直补偿（em）：各字体 win 度量上下留白不对称，
+   * 字形在 em 方框内的视觉位置不一致，用 translateY 拉齐到系统字体基准。
+   */
+  yOffset: number
 }
 
 export const FONT_OPTIONS: FontOption[] = [
-  { key: 'system', label: '系统默认', family: SYSTEM_FONT_STACK, url: null },
-  { key: 'oppo', label: 'OPPO Sans', family: "'MookFontOPPO'", url: oppoUrl },
-  { key: 'fangyuan', label: '阿里妈妈方圆体', family: "'MookFontFangYuan'", url: fangUrl },
-  { key: 'smiley', label: '得意黑 Smiley Sans', family: "'MookFontSmiley'", url: smileyUrl }
+  { key: 'system', label: '系统默认', family: SYSTEM_FONT_STACK, url: null, yOffset: 0 },
+  { key: 'oppo', label: 'OPPO Sans', family: "'MookFontOPPO'", url: oppoUrl, yOffset: 0.04 },
+  { key: 'fangyuan', label: '阿里妈妈方圆体', family: "'MookFontFangYuan'", url: fangUrl, yOffset: -0.025 },
+  { key: 'smiley', label: '得意黑 Smiley Sans', family: "'MookFontSmiley'", url: smileyUrl, yOffset: 0.06 }
 ]
 
 function fontOption(key: string | null | undefined): FontOption {
@@ -60,6 +65,25 @@ export function applyFont(key: string | null | undefined): string {
   document.documentElement.style.setProperty('--app-font', stack)
   currentFontStack.value = stack
   return stack
+}
+
+/**
+ * 预注册全部内置字体的 @font-face，使设置页的字体方块预览在未选中时也能按各自字形渲染。
+ * 独立于 applyFont（后者只注入当前选中字体并覆盖全局字体栈）。
+ */
+export function preloadFontFaces(): void {
+  const css = FONT_OPTIONS.filter((f) => f.url)
+    .map(
+      (f) =>
+        `@font-face{font-family:${f.family};src:url('${f.url}') format('truetype');font-display:swap;}`
+    )
+    .join('\n')
+  ensureStyle('mook-font-faces-all').textContent = css
+}
+
+/** 字体预览方块使用的字体栈：内置字体回退到系统栈，避免生僻字缺字 */
+export function fontPreviewStack(opt: FontOption): string {
+  return opt.url ? `${opt.family}, ${SYSTEM_FONT_STACK}` : SYSTEM_FONT_STACK
 }
 
 interface IconOption {

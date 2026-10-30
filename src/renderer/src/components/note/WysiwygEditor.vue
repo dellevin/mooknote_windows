@@ -2,7 +2,28 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import Vditor from 'vditor'
 import 'vditor/dist/index.css'
+// 本地引导 highlight.js：Vditor 默认从 CDN 懒加载 hljs 脚本/主题，离线 Electron 会失败；
+// 直接用 node_modules 里的全量包挂到 window，并注入同 id 占位标签让 Vditor 的 addScript/addStyle 跳过网络请求
+import hljs from 'highlight.js'
+import 'highlight.js/styles/github.css'
 import { mountBlockBehavior } from './vditor-blocks'
+
+function bootLocalHljs(): void {
+  ;(window as unknown as { hljs: typeof hljs }).hljs = hljs
+  for (const id of ['vditorHljsScript', 'vditorHljsThirdScript']) {
+    if (!document.getElementById(id)) {
+      const s = document.createElement('script')
+      s.id = id
+      document.head.appendChild(s)
+    }
+  }
+  if (!document.getElementById('vditorHljsStyle')) {
+    const l = document.createElement('link')
+    l.id = 'vditorHljsStyle'
+    l.rel = 'stylesheet'
+    document.head.appendChild(l)
+  }
+}
 
 const props = defineProps<{
   modelValue: string
@@ -34,6 +55,7 @@ function onDrop(e: Event): void {
 }
 
 onMounted(() => {
+  bootLocalHljs()
   vd = new Vditor(host.value as HTMLElement, {
     mode: 'wysiwyg',
     theme: 'classic',
@@ -41,8 +63,9 @@ onMounted(() => {
     value: props.modelValue,
     placeholder: '用 Markdown 记录，所见即所得…',
     cache: { enable: false },
-    // Vditor 默认把正文限制在 800px 居中、两侧留大片白；放大到铺满，只保留最小边距
-    preview: { maxWidth: 99999 },
+    // Vditor 默认把正文限制在 800px 居中、两侧留大片白；放大到铺满，只保留最小边距。
+    // 保留代码块高亮预览（失焦显示语法高亮，点进去编辑源码），编辑态由 vditor-blocks 隐藏预览避免双份内容
+    preview: { maxWidth: 99999, hljs: { style: 'github', lineNumber: false } },
     // 纯净编辑：不显示任何工具栏
     toolbar: [],
     input: (val: string) => emit('update:modelValue', val),

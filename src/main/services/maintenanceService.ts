@@ -16,7 +16,8 @@ const SINGLE_IMAGE_COLS: Array<[string, string]> = [
   ['movie_characters', 'image_path'],
   ['book_characters', 'image_path'],
   ['game_characters', 'image_path'],
-  ['custom_module_items', 'cover_path']
+  ['custom_module_items', 'cover_path'],
+  ['image_assets', 'path']
 ]
 
 // 含图片路径 JSON 数组字段的结构
@@ -29,9 +30,6 @@ const JSON_IMAGE_COLS: Array<[string, string]> = [
   ['book_chapters', 'images'],
   ['game_levels', 'images']
 ]
-
-// NOT NULL 的从属图片表：引用失效时删除整行，其余单值字段置空
-const DELETE_ROW_TABLES = new Set(['movie_posters', 'game_screenshots'])
 
 /** 把数据库中存储的图片路径解析为真实磁盘绝对路径；无法落到 images 目录则返回 null */
 function storedToAbs(raw: string): string | null {
@@ -56,12 +54,6 @@ function storedToAbs(raw: string): string | null {
     p = norm.slice(idx + '/images/'.length)
   }
   return path.join(imagesRoot(), ...p.split(/[/\\]/))
-}
-
-/** 该引用指向的文件是否存在；无法解析路径视为无效 */
-function refExists(raw: string): boolean {
-  const abs = storedToAbs(raw)
-  return abs ? fs.existsSync(abs) : false
 }
 
 function parseStringList(raw: unknown): string[] {
@@ -95,12 +87,6 @@ function columnExists(table: string, col: string): boolean {
     .prepare(`PRAGMA table_info(${table})`)
     .all() as { name: string }[]
   return cols.some((c) => c.name === col)
-}
-
-interface JsonRowKey {
-  table: string
-  col: string
-  rid: number | string
 }
 
 /** 遍历全库所有图片引用 */
@@ -164,122 +150,20 @@ function collectRefs(): RefTarget[] {
 }
 
 /**
- * 清除无效图片引用：数据库/prefs 中指向已不存在文件的路径。
- * 单值字段置空（NOT NULL 从属表删行），JSON 数组移除对应项，自定义 data_json 同步剔除。
- * removed 为受影响的字段/条目数量。
+ * 清理缓存数据：Chromium 可重建的缓存目录 + 残留的应用临时文件，
+ * 并删除数据库已不引用的孤立图片文件（对齐手机 CacheCleaner），
+ * 顺带清掉 image_assets 中对应的孤儿改名记录。
  */
-export function cleanInvalidImageRefs(): { removed: number } {
-  const db = getDb()
-  let removed = 0
-
-  const tx = db.transaction(() => {
-    const refs = collectRefs()
-
-    // 单值字段：从属图片表（海报/截图）删除整行，其余置空
-    for (const ref of refs) {
-      if (ref.kind !== 'single' || !ref.table || !ref.col || ref.rowid === undefined) continue
-      if (refExists(ref.value)) continue
-      if (DELETE_ROW_TABLES.has(ref.table)) {
-        db.prepare(`DELETE FROM ${ref.table} WHERE rowid = ?`).run(ref.rowid)
-      } else {
-        db.prepare(`UPDATE ${ref.table} SET ${ref.col} = NULL WHERE rowid = ?`).run(ref.rowid)
-      }
-      removed++
-    }
-
-    // JSON 数组字段：按 表/列/行 聚合，一次性过滤掉无效项
-    const jsonRowMap = new Map<string, JsonRowKey>()
-    for (const ref of refs) {
-      if (
-        ref.kind === 'json' &&
-        ref.table &&
-        ref.col &&
-        ref.col !== 'data_json' &&
-        ref.rowid !== undefined
-      ) {
-        jsonRowMap.set(`${ref.table}\u0000${ref.col}\u0000${String(ref.rowid)}`, {
-          table: ref.table,
-          col: ref.col,
-          rid: ref.rowid
-        })
-      }
-    }
-    for (const { table, col, rid } of jsonRowMap.values()) {
-      const row = db.prepare(`SELECT ${col} AS p FROM ${table} WHERE rowid = ?`).get(rid) as
-        | { p: string }
-        | undefined
-      const list = parseStringList(row?.p)
-      const next = list.filter(refExists)
-      if (next.length === list.length) continue
-      db.prepare(`UPDATE ${table} SET ${col} = ? WHERE rowid = ?`).run(JSON.stringify(next), rid)
-      removed++
-    }
-
-    // 自定义条目 data_json：按行剔除无效图片字符串
-    const customRows = new Set<number | string>()
-    for (const ref of refs) {
-      if (ref.kind === 'json' && ref.table === 'custom_module_items' && ref.rowid !== undefined) {
-        customRows.add(ref.rowid)
-      }
-    }
-    for (const rid of customRows) {
-      const row = db
-        .prepare(`SELECT data_json FROM custom_module_items WHERE rowid = ?`)
-        .get(rid) as { data_json: string } | undefined
-      if (!row) continue
-      let obj: Record<string, unknown>
-      try {
-        obj = JSON.parse(row.data_json)
-      } catch {
-        continue
-      }
-      let changed = false
-      for (const [k, v] of Object.entries(obj)) {
-        if (typeof v === 'string' && v.replaceAll('\\', '/').includes('/images/') && !refExists(v)) {
-          obj[k] = ''
-          changed = true
-        } else if (Array.isArray(v)) {
-          const next = v.filter(
-            (e) =>
-              !(
-                typeof e === 'string' &&
-                e.replaceAll('\\', '/').includes('/images/') &&
-                !refExists(e)
-              )
-          )
-          if (next.length !== v.length) {
-            obj[k] = next
-            changed = true
-          }
-        }
-      }
-      if (changed) {
-        db.prepare(`UPDATE custom_module_items SET data_json = ? WHERE rowid = ?`).run(
-          JSON.stringify(obj),
-          rid
-        )
-        removed++
-      }
-    }
-
-    // 头像 prefs
-    const avatar = prefs.get<string>('avatarPath', '')
-    if (avatar && !refExists(avatar)) {
-      prefs.set('avatarPath', '')
-      removed++
-    }
-  })
-  tx()
-
-  return { removed }
-}
-
-/**
- * 清理缓存数据：Chromium 可重建的缓存目录 + 残留的应用临时文件。
- * 不触碰数据库、图片、prefs。
- */
-export function clearCacheData(): { bytes: number } {
+export function clearCacheData(): { bytes: number; orphanImages: number; emptyDirs: number } {
   let bytes = 0
+
+  // 孤立图片：磁盘有、但数据库/prefs 已不引用（删除笔记/影评等后的残留）
+  const referenced = collectReferenced()
+  const orphans = cleanOrphanImageFiles(referenced.abs)
+  bytes += orphans.bytes
+  deleteOrphanImageAssets(referenced.logical)
+  // 删完孤立图片后顺带清掉残留空目录
+  const emptyDirs = cleanEmptyImageDirs().removed
 
   const cacheDirs = [
     'Cache',
@@ -310,7 +194,7 @@ export function clearCacheData(): { bytes: number } {
     }
   }
 
-  return { bytes }
+  return { bytes, orphanImages: orphans.count, emptyDirs }
 }
 
 function safeReaddir(dir: string): string[] {
@@ -346,10 +230,128 @@ function rmPathSize(p: string): number {
   return size
 }
 
-function safeRm(p: string): void {
+function safeRm(p: string): boolean {
   try {
     fs.rmSync(p, { recursive: true, force: true })
+    return true
   } catch {
     // 运行期被占用的文件可能删除失败，忽略
+    return false
   }
+}
+
+/** 任意设备绝对/相对路径 → images/ 下逻辑路径（对齐手机 ImageAssetDao.toLogicalPath） */
+function toLogical(raw: string): string {
+  const n = String(raw).replaceAll('\\', '/')
+  const idx = n.indexOf('/images/')
+  return idx >= 0 ? n.slice(idx + '/images/'.length) : n
+}
+
+function normAbs(p: string): string {
+  return path.resolve(p).replaceAll('\\', '/').toLowerCase()
+}
+
+/**
+ * 收集当前被数据库/prefs 实际引用的图片：归一化绝对路径集合（用于孤立文件判定）
+ * 与逻辑路径集合（用于清理 image_assets 派生索引）。
+ * image_assets 本身是派生索引，不计入引用来源（与手机 getAllDbImagePaths 口径一致）。
+ */
+function collectReferenced(): { abs: Set<string>; logical: Set<string> } {
+  const abs = new Set<string>()
+  const logical = new Set<string>()
+  for (const ref of collectRefs()) {
+    if (ref.table === 'image_assets') continue
+    logical.add(toLogical(ref.value))
+    const a = storedToAbs(ref.value)
+    if (a) abs.add(normAbs(a))
+  }
+  return { abs, logical }
+}
+
+/** 删除 images/ 下数据库已不引用的孤立图片文件（不删 avatar*），返回文件数与字节数 */
+function cleanOrphanImageFiles(referencedAbs: Set<string>): { count: number; bytes: number } {
+  let count = 0
+  let bytes = 0
+  const walk = (dir: string): void => {
+    for (const name of safeReaddir(dir)) {
+      const fp = path.join(dir, name)
+      let st: fs.Stats
+      try {
+        st = fs.statSync(fp)
+      } catch {
+        continue
+      }
+      if (st.isDirectory()) {
+        walk(fp)
+      } else if (st.isFile()) {
+        if (name.startsWith('avatar')) continue
+        if (referencedAbs.has(normAbs(fp))) continue
+        if (safeRm(fp)) {
+          count++
+          bytes += st.size
+        }
+      }
+    }
+  }
+  walk(imagesRoot())
+  return { count, bytes }
+}
+
+/** 删除 image_assets 中逻辑路径已不属于任何实体的改名记录（缓存清理时调用） */
+function deleteOrphanImageAssets(validLogical: Set<string>): number {
+  if (!tableExists('image_assets')) return 0
+  const db = getDb()
+  const rows = db.prepare('SELECT rowid AS rid, path FROM image_assets').all() as {
+    rid: number
+    path: string
+  }[]
+  const del = db.prepare('DELETE FROM image_assets WHERE rowid = ?')
+  let removed = 0
+  const tx = db.transaction(() => {
+    for (const r of rows) {
+      if (!validLogical.has(toLogical(r.path))) {
+        del.run(r.rid)
+        removed++
+      }
+    }
+  })
+  tx()
+  return removed
+}
+
+/**
+ * 清理 images/ 下的空文件夹（自底向上；保留 images 根目录本身）。
+ * 删除孤立图片后常残留空的实体目录。返回删除的空文件夹数。
+ */
+export function cleanEmptyImageDirs(): { removed: number } {
+  let removed = 0
+  const root = imagesRoot()
+  const prune = (dir: string): void => {
+    let entries: string[]
+    try {
+      entries = fs.readdirSync(dir)
+    } catch {
+      return
+    }
+    for (const name of entries) {
+      const fp = path.join(dir, name)
+      let st: fs.Stats
+      try {
+        st = fs.statSync(fp)
+      } catch {
+        continue
+      }
+      if (st.isDirectory()) prune(fp)
+    }
+    if (dir !== root) {
+      try {
+        const left = fs.readdirSync(dir)
+        if (left.length === 0 && safeRm(dir)) removed++
+      } catch {
+        // 删除失败（占用/权限）忽略
+      }
+    }
+  }
+  prune(root)
+  return { removed }
 }

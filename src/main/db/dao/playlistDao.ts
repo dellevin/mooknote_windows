@@ -8,6 +8,7 @@ import type {
   PlaylistItemView,
   PlaylistType
 } from '../../../shared/types'
+import { recordTombstone } from '../../services/sync/syncTombstones'
 
 interface PlaylistRow {
   id: string
@@ -144,6 +145,7 @@ class PlaylistDao {
     const db = this.db()
     db.transaction(() => {
       db.prepare(`DELETE FROM playlist_items WHERE playlist_id=?`).run(id)
+      recordTombstone('playlists', id)
       db.prepare(`DELETE FROM playlists WHERE id=?`).run(id)
     })()
   }

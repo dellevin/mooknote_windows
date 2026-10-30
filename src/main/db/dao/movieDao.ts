@@ -8,6 +8,7 @@ import {
   MOVIE_ORDER_BY
 } from '../util'
 import type { Movie, MovieInput } from '../../../shared/types'
+import { recordTombstone } from '../../services/sync/syncTombstones'
 
 interface MovieRow {
   id: string
@@ -188,6 +189,7 @@ class MovieDao {
       d.prepare('DELETE FROM movie_people WHERE movie_id=?').run(mid)
       d.prepare('DELETE FROM movie_characters WHERE movie_id=?').run(mid)
       d.prepare('DELETE FROM playlist_items WHERE item_id=?').run(mid)
+      recordTombstone('movies', mid)
       d.prepare('DELETE FROM movies WHERE id=?').run(mid)
     })
     tx(id)

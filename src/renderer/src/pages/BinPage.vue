@@ -4,7 +4,7 @@ import { NButton, NSpace, NPopconfirm, NEmpty, NSpin, NTag, NCheckbox } from 'na
 import { formatDate } from '@/utils/image'
 import { plainPreview } from '@/utils/markdown'
 
-type BinKind = 'movie' | 'book' | 'game' | 'note' | 'custom'
+type BinKind = 'movie' | 'book' | 'game' | 'playlist' | 'note' | 'custom'
 
 interface BinRow {
   id: string
@@ -18,10 +18,11 @@ const KIND_LABEL: Record<BinKind, string> = {
   movie: '影视',
   book: '书籍',
   game: '游戏',
+  playlist: '片单',
   note: '笔记',
   custom: '自定义'
 }
-const KIND_ORDER: BinKind[] = ['movie', 'book', 'game', 'note', 'custom']
+const KIND_ORDER: BinKind[] = ['movie', 'book', 'game', 'playlist', 'note', 'custom']
 
 const rows = ref<BinRow[]>([])
 const loading = ref(false)
@@ -54,6 +55,7 @@ function toggleAll(): void {
 async function restoreOne(r: BinRow): Promise<void> {
   if (r.kind === 'custom') await window.mook.customItem.restore(r.id)
   else if (r.kind === 'note') await window.mook.note.restore(r.id)
+  else if (r.kind === 'playlist') await window.mook.playlist.restore(r.id)
   else await window.mook[r.kind].restore(r.id)
 }
 async function batchRestore(): Promise<void> {
@@ -66,6 +68,7 @@ async function batchRestore(): Promise<void> {
 async function purgeOne(r: BinRow): Promise<void> {
   if (r.kind === 'custom') await window.mook.customItem.purge(r.id)
   else if (r.kind === 'note') await window.mook.note.purge(r.id)
+  else if (r.kind === 'playlist') await window.mook.playlist.purge(r.id)
   else await window.mook[r.kind].purge(r.id)
 }
 async function batchPurge(): Promise<void> {
@@ -79,14 +82,24 @@ async function batchPurge(): Promise<void> {
 async function load(): Promise<void> {
   loading.value = true
   try {
-    const [movies, books, games, notes, customs] = await Promise.all([
+    const [movies, books, games, playlists, notes, customs] = await Promise.all([
       window.mook.movie.list({ includeDeleted: true }),
       window.mook.book.list({ includeDeleted: true }),
       window.mook.game.list({ includeDeleted: true }),
+      window.mook.playlist.list(true),
       window.mook.note.list({ includeDeleted: true }),
       window.mook.customItem.deleted()
     ])
     const all: BinRow[] = [
+      ...playlists
+        .filter((p) => p.isDeleted)
+        .map((p) => ({
+          id: p.id,
+          kind: 'playlist' as BinKind,
+          title: p.name,
+          sub: p.description || '',
+          updatedAt: p.updatedAt
+        })),
       ...movies.map((m) => ({
         id: m.id,
         kind: 'movie' as BinKind,
@@ -138,6 +151,7 @@ async function restore(row: BinRow): Promise<void> {
 async function purge(row: BinRow): Promise<void> {
   if (row.kind === 'custom') await window.mook.customItem.purge(row.id)
   else if (row.kind === 'note') await window.mook.note.purge(row.id)
+  else if (row.kind === 'playlist') await window.mook.playlist.purge(row.id)
   else await window.mook[row.kind].purge(row.id)
   await load()
 }

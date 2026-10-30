@@ -170,7 +170,7 @@ function askDelete(): void {
                     <span v-if="it.rating != null" class="rate">★ {{ it.rating.toFixed(1) }}</span>
                   </div>
                 </div>
-                <NPopconfirm @positive-click="removeItem(it)">
+                <NPopconfirm to="body" @positive-click="removeItem(it)">
                   <template #trigger>
                     <NButton size="tiny" quaternary type="error">移除</NButton>
                   </template>

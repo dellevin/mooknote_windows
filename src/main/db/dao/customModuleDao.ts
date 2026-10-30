@@ -11,6 +11,7 @@ import type {
   CustomFieldDef,
   CustomFieldValue
 } from '../../../shared/types'
+import { recordTombstone } from '../../services/sync/syncTombstones'
 
 interface ModuleRow {
   id: string
@@ -422,6 +423,7 @@ class ItemDao {
   }
 
   permanentDelete(id: string): void {
+    recordTombstone('custom_module_items', id)
     this.db().prepare(`DELETE FROM custom_module_items WHERE id=?`).run(id)
   }
 }
