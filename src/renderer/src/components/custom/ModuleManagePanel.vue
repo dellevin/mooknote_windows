@@ -219,7 +219,7 @@ function onDesignChanged(): void {
   font-size: 16px;
 }
 .form-card {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid #eef0f4;
   border-radius: 14px;
   padding: 20px 24px;
@@ -247,7 +247,7 @@ function onDesignChanged(): void {
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid #eef0f4;
   border-radius: 12px;
   transition:
@@ -266,7 +266,7 @@ function onDesignChanged(): void {
 .name {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .meta {
   font-size: 12px;
@@ -295,8 +295,8 @@ function onDesignChanged(): void {
   height: 38px;
   border-radius: 10px;
   border: 1px solid #e4e7ec;
-  background: #fff;
-  color: #1f2329;
+  background: var(--surface);
+  color: var(--text-strong);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -306,13 +306,13 @@ function onDesignChanged(): void {
     background-color 0.12s ease;
 }
 .icon-trigger:hover {
-  border-color: #1f2329;
+  border-color: var(--text-strong);
   background: #f6f7f9;
 }
 .icon-modal {
   width: 432px;
   max-width: 92vw;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 20px 22px;
 }

@@ -286,7 +286,7 @@ onMounted(load)
 .title {
   font-size: 18px;
   font-weight: 700;
-  color: #1f2329;
+  color: var(--text-strong);
   margin: 0;
 }
 /* 分段控件 */
@@ -312,8 +312,8 @@ onMounted(load)
     box-shadow 0.15s;
 }
 .seg.on {
-  background: #fff;
-  color: #1f2329;
+  background: var(--surface);
+  color: var(--text-strong);
   font-weight: 600;
   box-shadow: 0 1px 4px rgba(31, 35, 41, 0.12);
 }
@@ -374,7 +374,7 @@ onMounted(load)
 .month {
   font-size: 16px;
   font-weight: 700;
-  color: #1f2329;
+  color: var(--text-strong);
   letter-spacing: 0.3px;
   min-width: 140px;
   text-align: center;
@@ -459,7 +459,7 @@ onMounted(load)
   display: grid;
   gap: 2px;
   padding: 2px;
-  background: #fff;
+  background: var(--surface);
 }
 .collage.g1 {
   grid: 1fr / 1fr;
@@ -547,7 +547,7 @@ onMounted(load)
   width: 440px;
   max-width: calc(100vw - 48px);
   max-height: 70vh;
-  background: #fff;
+  background: var(--surface);
   border-radius: 18px;
   box-shadow: 0 12px 40px rgba(31, 35, 41, 0.18);
   display: flex;
@@ -564,7 +564,7 @@ onMounted(load)
 .detail-date {
   font-size: 15px;
   font-weight: 700;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .detail-count {
   font-size: 11px;
@@ -622,7 +622,7 @@ onMounted(load)
 .row-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -161,7 +161,7 @@ function askDelete(): void {
   width: 680px;
   max-width: 94vw;
   max-height: 86vh;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   overflow: hidden;
   display: flex;
@@ -201,7 +201,7 @@ function askDelete(): void {
 }
 .title {
   font-size: 22px;
-  color: #1f2329;
+  color: var(--text-strong);
   margin-bottom: 6px;
 }
 .alt {
@@ -227,7 +227,7 @@ function askDelete(): void {
 .section-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
   margin: 10px 0 8px;
 }
 .summary p {
@@ -258,7 +258,7 @@ function askDelete(): void {
   background: #f3f5fb;
 }
 .work-title {
-  color: #1f2329;
+  color: var(--text-strong);
   font-weight: 500;
 }
 .char {

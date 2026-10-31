@@ -373,9 +373,9 @@ async function importAs(
     box-shadow 0.15s;
 }
 .local-search:focus-within {
-  background: #fff;
-  border-color: color-mix(in srgb, var(--accent) 45%, #fff);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 8%, transparent);
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--accent-ink) 45%, var(--surface));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-ink) 8%, transparent);
 }
 .ls-icon {
   width: 18px;
@@ -450,7 +450,7 @@ async function importAs(
 .t {
   font-size: 13.5px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
   margin-top: 6px;
   white-space: nowrap;
   overflow: hidden;
@@ -514,7 +514,7 @@ async function importAs(
   max-width: 94vw;
   max-height: 86vh;
   overflow-y: auto;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 20px 24px;
 }

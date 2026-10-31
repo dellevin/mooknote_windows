@@ -147,7 +147,7 @@ onMounted(async () => {
 .title {
   font-size: 20px;
   font-weight: 700;
-  color: #1f2329;
+  color: var(--text-strong);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -179,7 +179,7 @@ onMounted(async () => {
 .cell {
   break-inside: avoid;
   margin-bottom: 14px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid #eef0f4;
   border-radius: 12px;
   overflow: hidden;

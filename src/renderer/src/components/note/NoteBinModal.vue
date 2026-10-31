@@ -133,7 +133,7 @@ async function purge(n: Note): Promise<void> {
   width: 680px;
   max-width: 92vw;
   height: 70vh;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 20px 24px;
   display: flex;
@@ -198,7 +198,7 @@ async function purge(n: Note): Promise<void> {
 .title {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .preview {
   font-size: 12.5px;

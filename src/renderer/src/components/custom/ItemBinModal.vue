@@ -140,7 +140,7 @@ async function purge(it: CustomModuleItem): Promise<void> {
   width: 660px;
   max-width: 92vw;
   height: 70vh;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 20px 24px;
   display: flex;
@@ -205,7 +205,7 @@ async function purge(it: CustomModuleItem): Promise<void> {
 .title {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
   display: flex;
   align-items: center;
   gap: 6px;

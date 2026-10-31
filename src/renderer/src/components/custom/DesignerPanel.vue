@@ -592,7 +592,7 @@ async function save(): Promise<void> {
   padding: 0 12px 0 8px;
   font-size: 13px;
   color: #4b5563;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid #e6e8ee;
   border-radius: 999px;
   cursor: pointer;
@@ -603,9 +603,9 @@ async function save(): Promise<void> {
     box-shadow var(--d1) var(--fluent-ease);
 }
 .back:hover {
-  border-color: color-mix(in srgb, var(--accent) 45%, #fff);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 6%, #fff);
+  border-color: color-mix(in srgb, var(--accent-ink) 45%, var(--surface));
+  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
   box-shadow: 0 2px 8px rgba(31, 35, 41, 0.06);
 }
 .back-ic {
@@ -657,7 +657,7 @@ async function save(): Promise<void> {
 .field-card {
   flex: 1;
   min-width: 0;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid #e9ebf1;
   border-radius: 12px;
   padding: 14px;
@@ -675,8 +675,8 @@ async function save(): Promise<void> {
   margin-left: 0;
 }
 .field-card.over {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 50%, transparent);
+  border-color: var(--accent-ink);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent-ink) 50%, transparent);
 }
 .field-card.dragging {
   opacity: 0.35;
@@ -700,9 +700,9 @@ async function save(): Promise<void> {
 }
 .half-slot:hover,
 .half-slot.on {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, #fff);
+  border-color: var(--accent-ink);
+  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
 }
 .add-btn {
   width: 100%;
@@ -719,8 +719,8 @@ async function save(): Promise<void> {
     color var(--d1) var(--fluent-ease);
 }
 .add-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent-ink);
+  color: var(--accent-ink);
 }
 
 /* ─── 类型选择 ─── */
@@ -729,7 +729,7 @@ async function save(): Promise<void> {
   max-width: 94vw;
   max-height: 82vh;
   overflow-y: auto;
-  background: #fff;
+  background: var(--surface);
   border-radius: 16px;
   padding: 20px 22px;
 }
@@ -754,8 +754,8 @@ async function save(): Promise<void> {
     background-color var(--d1) var(--fluent-ease);
 }
 .type-card:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: #fff;
+  border-color: var(--accent-ink);
+  background: var(--surface);
 }
 .type-card:disabled {
   opacity: 0.5;
@@ -773,7 +773,7 @@ async function save(): Promise<void> {
 .type-name {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .type-desc {
   font-size: 12px;
@@ -788,7 +788,7 @@ async function save(): Promise<void> {
   max-width: 94vw;
   max-height: 86vh;
   overflow-y: auto;
-  background: #fff;
+  background: var(--surface);
   border-radius: 16px;
   padding: 20px 22px;
 }
@@ -852,8 +852,8 @@ async function save(): Promise<void> {
 }
 .icon-cell.on {
   background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  border-color: var(--accent-ink);
+  color: var(--on-accent);
 }
 .cfg-opt-block {
   margin-bottom: 16px;

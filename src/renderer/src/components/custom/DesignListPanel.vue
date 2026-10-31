@@ -195,7 +195,7 @@ function extraCount(d: CustomModuleDesign): number {
   padding: 0 12px 0 8px;
   font-size: 13px;
   color: #4b5563;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid #e6e8ee;
   border-radius: 999px;
   cursor: pointer;
@@ -206,9 +206,9 @@ function extraCount(d: CustomModuleDesign): number {
     box-shadow var(--d1) var(--fluent-ease);
 }
 .back:hover {
-  border-color: color-mix(in srgb, var(--accent) 45%, #fff);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 6%, #fff);
+  border-color: color-mix(in srgb, var(--accent-ink) 45%, var(--surface));
+  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
   box-shadow: 0 2px 8px rgba(31, 35, 41, 0.06);
 }
 .back:active {
@@ -226,7 +226,7 @@ function extraCount(d: CustomModuleDesign): number {
 .page-title {
   font-size: 18px;
   font-weight: 700;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .sub {
   font-size: 12.5px;
@@ -242,7 +242,7 @@ function extraCount(d: CustomModuleDesign): number {
 .design-card {
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid #eef0f4;
   border-radius: 12px;
   padding: 14px 16px;
@@ -255,8 +255,8 @@ function extraCount(d: CustomModuleDesign): number {
   box-shadow: 0 6px 18px rgba(31, 35, 41, 0.08);
 }
 .design-card.active {
-  border-color: color-mix(in srgb, var(--accent) 45%, #fff);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+  border-color: color-mix(in srgb, var(--accent-ink) 45%, var(--surface));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-ink) 25%, transparent);
 }
 
 .card-head {
@@ -269,7 +269,7 @@ function extraCount(d: CustomModuleDesign): number {
 .design-name {
   font-size: 15px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -353,9 +353,9 @@ function extraCount(d: CustomModuleDesign): number {
     background-color var(--d2) var(--fluent-ease);
 }
 .add-card:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: #fff;
+  border-color: var(--accent-ink);
+  color: var(--accent-ink);
+  background: var(--surface);
 }
 .plus {
   font-size: 26px;

@@ -80,11 +80,33 @@ interface FlatNode {
   childCount: number
 }
 const collapsed = ref<Set<string>>(new Set())
+const COLLAPSE_KEY = 'tagCollapsed'
+function persistCollapsed(next: Set<string>): void {
+  collapsed.value = next
+  const arr: string[] = []
+  next.forEach((id) => arr.push(id))
+  void window.mook.prefs.set(COLLAPSE_KEY, arr)
+}
 function toggleCollapse(id: string): void {
   const next = new Set(collapsed.value)
   if (next.has(id)) next.delete(id)
   else next.add(id)
-  collapsed.value = next
+  persistCollapsed(next)
+}
+
+// 当前分类下所有含子标签的父节点 id
+const parentIds = computed(() => {
+  const ids = new Set<string>()
+  for (const t of tags.value.filter((x: Tag) => x.type === active.value)) {
+    if (childrenMap.value.get(t.id)?.length) ids.add(t.id)
+  }
+  return ids
+})
+const allCollapsed = computed(
+  () => parentIds.value.size > 0 && [...parentIds.value].every((id) => collapsed.value.has(id))
+)
+function toggleCollapseAll(): void {
+  persistCollapsed(allCollapsed.value ? new Set() : new Set(parentIds.value))
 }
 
 const childrenMap = computed(() => {
@@ -308,7 +330,11 @@ async function confirmDelete(): Promise<void> {
   }
 }
 
-onMounted(load)
+onMounted(async () => {
+  const saved = await window.mook.prefs.get<string[]>(COLLAPSE_KEY, [])
+  collapsed.value = new Set(Array.isArray(saved) ? saved : [])
+  await load()
+})
 
 // ── 查看标签关联条目 ──
 const viewTarget = ref<Tag | null>(null)
@@ -380,6 +406,14 @@ function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
     <div class="toolbar">
       <h2 class="title">标签管理</h2>
       <div class="toolbar-ops">
+        <NButton
+          size="small"
+          quaternary
+          :disabled="!parentIds.size"
+          @click="toggleCollapseAll"
+        >
+          {{ allCollapsed ? '全部展开' : '全部折叠' }}
+        </NButton>
         <NButton size="small" quaternary @click="sync">从条目同步</NButton>
         <NButton size="small" type="primary" @click="openAdd">＋ 新建标签</NButton>
       </div>
@@ -433,18 +467,21 @@ function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
           </button>
           <span v-else class="caret-placeholder"></span>
           <button
+            v-if="node.childCount > 0"
             type="button"
-            class="name name-btn"
+            class="name name-toggle"
             :class="{ hidden: node.tag.isHidden }"
-            :title="`查看带有「${node.tag.name}」的条目`"
-            @click.stop="openView(node.tag)"
+            :title="`${collapsed.has(node.tag.id) ? '展开' : '折叠'}子标签`"
+            @click.stop="toggleCollapse(node.tag.id)"
           >
             {{ node.tag.name }}
           </button>
+          <span v-else class="name" :class="{ hidden: node.tag.isHidden }">{{ node.tag.name }}</span>
           <NTag v-if="node.tag.isHidden" size="tiny" :bordered="false">已隐藏</NTag>
           <button
             type="button"
             class="count count-btn"
+            :title="`查看带有「${node.tag.name}」的条目`"
             @click.stop="openView(node.tag)"
           >
             {{ usage[node.tag.name] ?? 0 }} 次使用
@@ -629,7 +666,7 @@ function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
 .title {
   font-size: 20px;
   font-weight: 700;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .tabs {
   display: flex;
@@ -650,12 +687,12 @@ function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
     color var(--d1) var(--fluent-ease);
 }
 .tab:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
 }
 .tab.on {
-  background: color-mix(in srgb, var(--accent) 12%, #fff);
-  border-color: color-mix(in srgb, var(--accent) 40%, #fff);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent-ink) 40%, var(--surface));
+  color: var(--accent-ink);
   font-weight: 600;
 }
 .toolbar-ops {
@@ -718,30 +755,38 @@ function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
 /* 折叠三角 */
 .caret {
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: none;
+  border-radius: 6px;
   background: transparent;
-  color: #8a909c;
-  font-size: 11px;
-  line-height: 18px;
+  color: #6b7280;
+  font-size: 15px;
+  line-height: 26px;
   text-align: center;
   cursor: pointer;
   transform: rotate(0deg);
-  transition: transform 0.12s ease;
+  transition:
+    transform 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.caret:hover {
+  background: rgba(17, 17, 17, 0.06);
+  color: var(--accent-ink);
 }
 .caret.open {
   transform: rotate(90deg);
 }
 .caret-placeholder {
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
+  width: 26px;
+  height: 26px;
 }
 .name {
   font-size: 13.5px;
-  color: #1f2329;
+  color: var(--text-strong);
   max-width: 320px;
   white-space: nowrap;
   overflow: hidden;
@@ -750,7 +795,7 @@ function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
 .name.hidden {
   color: #a8adb8;
 }
-.name-btn {
+.name-toggle {
   padding: 0;
   border: none;
   background: transparent;
@@ -758,8 +803,8 @@ function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
   text-align: left;
   cursor: pointer;
 }
-.name-btn:hover {
-  color: var(--accent);
+.name-toggle:hover {
+  color: var(--accent-ink);
   text-decoration: underline;
 }
 .count {
@@ -775,8 +820,8 @@ function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
   cursor: pointer;
 }
 .count-btn:hover {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, #fff);
+  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
 }
 .view-card {
   width: 780px;
@@ -799,12 +844,12 @@ function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
 }
 .view-head h3 {
   font-size: 16px;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .view-type {
   font-size: 11.5px;
   font-weight: 400;
-  color: var(--accent);
+  color: var(--accent-ink);
   margin-left: 8px;
 }
 .view-empty {
@@ -841,7 +886,7 @@ function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
 .note-title {
   font-size: 13.5px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
   margin-bottom: 3px;
 }
 .note-preview {
@@ -872,7 +917,7 @@ function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
 .dlg-card h3 {
   font-size: 16px;
   margin-bottom: 16px;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .dlg-foot {
   display: flex;
@@ -893,7 +938,7 @@ function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
 .del-card h3 {
   font-size: 16px;
   margin-bottom: 16px;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .modes {
   display: flex;

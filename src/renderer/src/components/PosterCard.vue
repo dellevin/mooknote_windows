@@ -60,7 +60,7 @@ function onClick(): void {
   cursor: pointer;
 }
 .card.on .poster {
-  outline: 3px solid #1f2329;
+  outline: 3px solid var(--accent-ink);
   outline-offset: -1px;
 }
 .pick-box {
@@ -83,8 +83,9 @@ function onClick(): void {
   height: 13px;
 }
 .pick-box.on {
-  background: #1f2329;
-  border-color: #1f2329;
+  background: var(--accent);
+  border-color: var(--text-strong);
+  color: var(--on-accent);
 }
 .poster {
   position: relative;
@@ -144,7 +145,7 @@ function onClick(): void {
 }
 .title {
   font-size: 13px;
-  color: #1f2329;
+  color: var(--text-strong);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

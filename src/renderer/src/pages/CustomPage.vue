@@ -221,13 +221,13 @@ function askDelete(it: CustomModuleItem): void {
 }
 .page-title {
   font-size: 18px;
-  color: #1f2329;
+  color: var(--text-strong);
   display: flex;
   align-items: center;
   gap: 8px;
 }
 .title-ic {
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .manage {
   width: 100%;
@@ -247,7 +247,7 @@ function askDelete(it: CustomModuleItem): void {
   align-content: start;
 }
 .card {
-  background: #fff;
+  background: var(--surface);
   border-radius: 12px;
   padding: 10px;
   border: 1px solid #eef0f4;
@@ -288,7 +288,7 @@ function askDelete(it: CustomModuleItem): void {
 .card-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

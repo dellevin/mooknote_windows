@@ -72,17 +72,17 @@ const CSS = `
 .mb-handles button svg{width:17px;height:17px;display:block;}
 .mb-handles button{transition:background .12s ease,color .12s ease,opacity .12s ease,transform .12s ease;}
 body.mb-dragging .mb-handles button:last-child{opacity:1;background:#eaf2ff;color:#3468f6;transform:scale(1.16);}
-.mb-menu{position:fixed;z-index:1300;min-width:132px;background:#fff;border:1px solid #e6e8ee;border-radius:8px;box-shadow:0 6px 22px rgba(31,38,52,.14);padding:4px;transform-origin:top left;animation:mb-pop-in .14s cubic-bezier(.2,.9,.25,1.15) both;}
+.mb-menu{position:fixed;z-index:1300;min-width:132px;background:var(--surface);border:1px solid #e6e8ee;border-radius:8px;box-shadow:0 6px 22px rgba(31,38,52,.14);padding:4px;transform-origin:top left;animation:mb-pop-in .14s cubic-bezier(.2,.9,.25,1.15) both;}
 .mb-menu.closing,.mb-slash.closing{animation:mb-fade-out .12s ease both;pointer-events:none;}
 .mb-menu-item{padding:6px 10px;font-size:13px;color:#3a4050;border-radius:5px;cursor:pointer;white-space:nowrap;transition:background .12s ease,color .12s ease;}
 .mb-menu-item:hover{background:#f2f4f8;}
 .mb-menu-item.danger{color:#e0483d;}
 .mb-menu-item.danger:hover{background:#fdeceb;}
-.mb-slash{position:fixed;z-index:1300;width:212px;max-height:264px;overflow-y:auto;background:#fff;border:1px solid #e6e8ee;border-radius:8px;box-shadow:0 6px 22px rgba(31,38,52,.14);padding:4px;transform-origin:top left;animation:mb-pop-in .14s cubic-bezier(.2,.9,.25,1.15) both;}
+.mb-slash{position:fixed;z-index:1300;width:212px;max-height:264px;overflow-y:auto;background:var(--surface);border:1px solid #e6e8ee;border-radius:8px;box-shadow:0 6px 22px rgba(31,38,52,.14);padding:4px;transform-origin:top left;animation:mb-pop-in .14s cubic-bezier(.2,.9,.25,1.15) both;}
 .mb-slash-item{display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:13px;color:#3a4050;border-radius:5px;cursor:pointer;white-space:nowrap;transition:background .12s ease;}
 .mb-slash-item .mb-ico{width:24px;height:24px;flex:0 0 24px;border:1px solid #e7e9f0;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#6b7280;background:#fafbfc;}
 .mb-slash-item .mb-ico svg{width:15px;height:15px;display:block;}
-.mb-slash-item.active .mb-ico,.mb-slash-item:hover .mb-ico{color:#3468f6;border-color:#cdddff;background:#fff;}
+.mb-slash-item.active .mb-ico,.mb-slash-item:hover .mb-ico{color:#3468f6;border-color:#cdddff;background:var(--surface);}
 .mb-slash-item.active,.mb-slash-item:hover{background:#eef3ff;}
 .mb-slash-empty{padding:10px;font-size:12px;color:#9aa0ac;}
 body.mb-dragging{cursor:grabbing !important;-webkit-user-select:none;user-select:none;}
@@ -93,10 +93,10 @@ body.mb-dragging{cursor:grabbing !important;-webkit-user-select:none;user-select
 .mb-indicator.show{opacity:1;transform:scaleX(1);}
 /* 代码块语言选择 */
 .mb-lang-chip{position:fixed;z-index:1200;display:none;align-items:center;gap:5px;height:23px;padding:0 7px 0 5px;font:inherit;font-size:12px;font-weight:500;color:#5b6472;background:rgba(255,255,255,.92);border:1px solid #e3e6ee;border-radius:6px;cursor:pointer;box-shadow:0 1px 3px rgba(31,38,52,.08);backdrop-filter:blur(3px);transition:background .12s ease,border-color .12s ease,color .12s ease;}
-.mb-lang-chip:hover{background:#fff;border-color:#cdddff;color:#3468f6;}
+.mb-lang-chip:hover{background:var(--surface);border-color:#cdddff;color:#3468f6;}
 .mb-lang-chip .mb-lang-caret{width:9px;height:9px;opacity:.55;flex:0 0 auto;}
 .mb-lang-chip .mb-lang-badge{width:16px;height:16px;flex:0 0 16px;font-size:8px;border-radius:4px;}
-.mb-lang-panel{position:fixed;z-index:1300;display:none;width:248px;background:#fff;border:1px solid #e6e8ee;border-radius:10px;box-shadow:0 10px 32px rgba(31,38,52,.16);padding:6px;transform-origin:top right;animation:mb-pop-in .14s cubic-bezier(.2,.9,.25,1.15) both;}
+.mb-lang-panel{position:fixed;z-index:1300;display:none;width:248px;background:var(--surface);border:1px solid #e6e8ee;border-radius:10px;box-shadow:0 10px 32px rgba(31,38,52,.16);padding:6px;transform-origin:top right;animation:mb-pop-in .14s cubic-bezier(.2,.9,.25,1.15) both;}
 .mb-lang-panel.closing{animation:mb-fade-out .12s ease both;pointer-events:none;}
 .mb-lang-search{width:100%;box-sizing:border-box;height:30px;border:1px solid #e3e6ee;border-radius:7px;padding:0 10px;font:inherit;font-size:13px;color:#2f3540;outline:none;margin-bottom:5px;}
 .mb-lang-search:focus{border-color:#9db9fb;box-shadow:0 0 0 3px rgba(52,104,246,.12);}

@@ -348,7 +348,9 @@ const api = {
     calendar: (mode: 0 | 1): Promise<CalendarEntry[]> =>
       ipcRenderer.invoke('stats:calendar', mode),
     gallery: (): Promise<GalleryImage[]> => ipcRenderer.invoke('stats:gallery'),
-    home: (): Promise<HomeStats> => ipcRenderer.invoke('stats:home')
+    home: (): Promise<HomeStats> => ipcRenderer.invoke('stats:home'),
+    dayItems: (day: string): Promise<{ kind: string; title: string }[]> =>
+      ipcRenderer.invoke('stats:day-items', day)
   },
   excel: {
     export: (kind: 'movie' | 'book' | 'game'): Promise<string | null> =>
@@ -360,6 +362,10 @@ const api = {
   image: {
     saveAs: (src: string, suggestedName?: string): Promise<boolean> =>
       ipcRenderer.invoke('image:save-as', src, suggestedName)
+  },
+  profile: {
+    pickAvatar: (): Promise<string | null> =>
+      ipcRenderer.invoke('profile:pick-avatar')
   },
   search: {
     tmdbTest: (token: string, authType: string, proxy: string): Promise<string> =>
@@ -484,7 +490,9 @@ const api = {
     clearCache: (): Promise<{ bytes: number; orphanImages: number; emptyDirs: number }> =>
       ipcRenderer.invoke('maintenance:clear-cache'),
     cleanEmptyDirs: (): Promise<{ removed: number }> =>
-      ipcRenderer.invoke('maintenance:clean-empty-dirs')
+      ipcRenderer.invoke('maintenance:clean-empty-dirs'),
+    purgeDeleted: (): Promise<{ rows: number; tables: number }> =>
+      ipcRenderer.invoke('maintenance:purge-deleted')
   },
   // 无边框窗口控制
   window: {

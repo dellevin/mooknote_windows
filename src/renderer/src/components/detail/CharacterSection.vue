@@ -207,7 +207,7 @@ async function remove(c: Character): Promise<void> {
 .section-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .grid {
   display: grid;
@@ -249,7 +249,7 @@ async function remove(c: Character): Promise<void> {
 .char-name {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .char-role {
   font-size: 12px;
@@ -278,7 +278,7 @@ async function remove(c: Character): Promise<void> {
 .editor {
   width: 560px;
   max-width: 92vw;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 20px 24px;
 }

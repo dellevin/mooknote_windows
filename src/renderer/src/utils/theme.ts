@@ -4,10 +4,6 @@ import { ref } from 'vue'
 import oppoUrl from '../../../assets/fonts/OPPO Sans 4.0.ttf'
 import fangUrl from '../../../assets/fonts/AlimamaFangYuanTiVF-Thin-2.ttf'
 import smileyUrl from '../../../assets/fonts/SmileySans-Oblique.ttf'
-import icon1Url from '../../../assets/icon/app_icon.webp'
-import icon2Url from '../../../assets/icon/app_icon2.webp'
-import iconMUrl from '../../../assets/icon/app_icon_m.png'
-import defaultIconUrl from '../../../../build/icon.png'
 
 const SYSTEM_FONT_STACK =
   "'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif"
@@ -15,21 +11,42 @@ const SYSTEM_FONT_STACK =
 interface FontOption {
   key: string
   label: string
+  /** 一句话风格描述 */
+  desc: string
   /** @font-face 注册名（系统默认项为完整字体栈） */
   family: string
   url: string | null
-  /**
-   * 预览方块的垂直补偿（em）：各字体 win 度量上下留白不对称，
-   * 字形在 em 方框内的视觉位置不一致，用 translateY 拉齐到系统字体基准。
-   */
-  yOffset: number
 }
 
 export const FONT_OPTIONS: FontOption[] = [
-  { key: 'system', label: '系统默认', family: SYSTEM_FONT_STACK, url: null, yOffset: 0 },
-  { key: 'oppo', label: 'OPPO Sans', family: "'MookFontOPPO'", url: oppoUrl, yOffset: 0.04 },
-  { key: 'fangyuan', label: '阿里妈妈方圆体', family: "'MookFontFangYuan'", url: fangUrl, yOffset: -0.025 },
-  { key: 'smiley', label: '得意黑 Smiley Sans', family: "'MookFontSmiley'", url: smileyUrl, yOffset: 0.06 }
+  {
+    key: 'system',
+    label: '系统默认',
+    desc: '跟随系统，清爽耐看',
+    family: SYSTEM_FONT_STACK,
+    url: null
+  },
+  {
+    key: 'oppo',
+    label: 'OPPO Sans',
+    desc: '现代黑体，简洁通用',
+    family: "'MookFontOPPO'",
+    url: oppoUrl
+  },
+  {
+    key: 'fangyuan',
+    label: '阿里妈妈方圆体',
+    desc: '方圆结合，圆润可爱',
+    family: "'MookFontFangYuan'",
+    url: fangUrl
+  },
+  {
+    key: 'smiley',
+    label: '得意黑 Smiley Sans',
+    desc: '倾斜有力，个性醒目',
+    family: "'MookFontSmiley'",
+    url: smileyUrl
+  }
 ]
 
 function fontOption(key: string | null | undefined): FontOption {
@@ -86,51 +103,4 @@ export function fontPreviewStack(opt: FontOption): string {
   return opt.url ? `${opt.family}, ${SYSTEM_FONT_STACK}` : SYSTEM_FONT_STACK
 }
 
-interface IconOption {
-  key: string
-  label: string
-  url: string
-}
 
-export const ICON_OPTIONS: IconOption[] = [
-  { key: 'default', label: '默认图标', url: defaultIconUrl },
-  { key: 'app_icon', label: '图标一', url: icon1Url },
-  { key: 'app_icon2', label: '图标二', url: icon2Url },
-  { key: 'app_icon_m', label: '图标 M', url: iconMUrl }
-]
-
-function iconOption(key: string | null | undefined): IconOption {
-  return ICON_OPTIONS.find((i) => i.key === key) ?? ICON_OPTIONS[0]
-}
-
-/** 读取图片并栅格化为 256×256 PNG（webp 等格式主进程 nativeImage 无法可靠解码） */
-function rasterizePng(url: string, size = 256): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      canvas.width = size
-      canvas.height = size
-      const ctx = canvas.getContext('2d')
-      if (!ctx) {
-        reject(new Error('canvas 不可用'))
-        return
-      }
-      // 等比缩放居中，铺满画布（图标素材均为方形近似，cover 裁切可接受）
-      const scale = Math.max(size / img.width, size / img.height)
-      const w = img.width * scale
-      const h = img.height * scale
-      ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h)
-      resolve(canvas.toDataURL('image/png'))
-    }
-    img.onerror = () => reject(new Error('图标加载失败'))
-    img.src = url
-  })
-}
-
-/** 设置窗口/任务栏图标 */
-export async function applyIcon(key: string | null | undefined): Promise<void> {
-  const opt = iconOption(key)
-  const png = await rasterizePng(new URL(opt.url, window.location.href).href)
-  await window.mook.window.setIcon(png)
-}

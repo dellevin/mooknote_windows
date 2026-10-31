@@ -574,7 +574,7 @@ function cardTitle(n: Note): string {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid #eef0f4;
   border-radius: 14px;
   overflow: hidden;
@@ -625,7 +625,7 @@ function cardTitle(n: Note): string {
 }
 .page-title {
   font-size: 17px;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .new-btn {
   border-radius: 999px;
@@ -692,7 +692,7 @@ function cardTitle(n: Note): string {
   padding: 7px 10px 6px 11px;
   border-radius: 10px;
   cursor: pointer;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid #eef0f4;
   transition:
     box-shadow 0.15s ease,
@@ -714,11 +714,11 @@ function cardTitle(n: Note): string {
   background: #fafbfc;
 }
 .note-row.active {
-  border-color: #1f2329;
+  border-color: var(--text-strong);
   background: #f7f8fa;
 }
 .note-row.active::before {
-  background: #1f2329;
+  background: var(--accent);
 }
 .row-main {
   flex: 1;
@@ -730,7 +730,7 @@ function cardTitle(n: Note): string {
   gap: 4px;
   font-size: 13px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .pin-icon {
   flex-shrink: 0;
@@ -784,7 +784,7 @@ function cardTitle(n: Note): string {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid #eef0f4;
   border-radius: 14px;
   display: flex;
@@ -945,7 +945,7 @@ function cardTitle(n: Note): string {
   flex: 0 0 auto;
   border: 1px dashed #cfd4dd;
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface);
   color: #9aa0ac;
   font-size: 24px;
   line-height: 1;
@@ -955,8 +955,8 @@ function cardTitle(n: Note): string {
     color 0.12s ease;
 }
 .img-add:hover {
-  border-color: #1f2329;
-  color: #1f2329;
+  border-color: var(--text-strong);
+  color: var(--text-strong);
 }
 .img-add:disabled {
   opacity: 0.6;

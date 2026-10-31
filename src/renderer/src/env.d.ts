@@ -287,6 +287,7 @@ interface MookApi {
     calendar: (mode: 0 | 1) => Promise<CalendarEntry[]>
     gallery: () => Promise<GalleryImage[]>
     home: () => Promise<HomeStats>
+    dayItems: (day: string) => Promise<{ kind: string; title: string }[]>
   }
   excel: {
     export: (kind: 'movie' | 'book' | 'game') => Promise<string | null>
@@ -296,6 +297,9 @@ interface MookApi {
   }
   image: {
     saveAs: (src: string, suggestedName?: string) => Promise<boolean>
+  }
+  profile: {
+    pickAvatar: () => Promise<string | null>
   }
   search: {
     tmdbTest: (token: string, authType: string, proxy: string) => Promise<string>
@@ -381,6 +385,7 @@ interface MookApi {
   maintenance: {
     clearCache: () => Promise<{ bytes: number; orphanImages: number; emptyDirs: number }>
     cleanEmptyDirs: () => Promise<{ removed: number }>
+    purgeDeleted: () => Promise<{ rows: number; tables: number }>
   }
   window: {
     minimize: () => void

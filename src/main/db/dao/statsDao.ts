@@ -253,6 +253,42 @@ class StatsDao {
     }
   }
 
+  // 某一天（本地日期 YYYY-MM-DD）新创建的条目，供首页热力图悬停查看
+  dayItems(day: string): { kind: string; title: string }[] {
+    const db = this.db()
+    const start = new Date(`${day}T00:00:00`)
+    const end = new Date(start)
+    end.setDate(end.getDate() + 1)
+    const startIso = start.toISOString()
+    const endIso = end.toISOString()
+
+    const query = (
+      kind: string,
+      table: string,
+      titleExpr: string
+    ): { kind: string; title: string }[] => {
+      const rows = db
+        .prepare(
+          `SELECT ${titleExpr} AS title FROM ${table}
+             WHERE is_deleted=0 AND created_at IS NOT NULL
+               AND created_at >= ? AND created_at < ?
+             ORDER BY created_at`
+        )
+        .all(startIso, endIso) as { title: string | null }[]
+      return rows
+        .map((r) => ({ kind, title: (r.title ?? '').trim() }))
+        .filter((r) => r.title)
+    }
+
+    return [
+      ...query('movie', 'movies', 'title'),
+      ...query('book', 'books', 'title'),
+      ...query('game', 'games', 'title'),
+      ...query('person', 'people', 'name'),
+      ...query('note', 'notes', "COALESCE(NULLIF(title, ''), substr(replace(content, char(10), ' '), 1, 30))")
+    ]
+  }
+
   // 聚合全部实体图片，按创建时间倒序（对齐 Flutter GalleryDao）
   gallery(): GalleryImage[] {
     const db = this.db()

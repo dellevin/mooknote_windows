@@ -137,7 +137,7 @@ async function remove(e: GameCompletion): Promise<void> {
 }
 .date {
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
   margin-right: 12px;
 }
 .note {
@@ -147,7 +147,7 @@ async function remove(e: GameCompletion): Promise<void> {
 .editor {
   width: 480px;
   max-width: 92vw;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 20px 24px;
 }

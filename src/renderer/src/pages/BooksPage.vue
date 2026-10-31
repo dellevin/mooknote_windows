@@ -272,7 +272,7 @@ onMounted(() => void onChanged())
 }
 .tab-all.active {
   background: #eef0f3;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .tab-want_to_read.active {
   background: rgba(37, 99, 235, 0.12);
@@ -299,7 +299,7 @@ onMounted(() => void onChanged())
   max-width: 46vw;
 }
 .search :deep(.n-input) {
-  background: #fff;
+  background: var(--surface);
   box-shadow: 0 1px 4px rgba(17, 17, 17, 0.05);
 }
 .search :deep(.n-input .n-input__border),
@@ -316,7 +316,7 @@ onMounted(() => void onChanged())
 }
 .sort :deep(.n-base-selection) {
   border-radius: 999px;
-  background: #fff;
+  background: var(--surface);
   box-shadow: 0 1px 4px rgba(17, 17, 17, 0.05);
 }
 .bin-btn {
@@ -334,9 +334,9 @@ onMounted(() => void onChanged())
   border-radius: 999px;
   height: 34px;
   padding: 0 16px;
-  background: #fff;
+  background: var(--surface);
   box-shadow: 0 1px 4px rgba(17, 17, 17, 0.05);
-  color: #1f2329;
+  color: var(--text-strong);
   font-weight: 500;
 }
 .multi-btn:hover {
@@ -352,7 +352,7 @@ onMounted(() => void onChanged())
   color: #5b616c;
 }
 .multi-btn:hover :deep(.n-icon) {
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .ic-multi {
   width: 15px;

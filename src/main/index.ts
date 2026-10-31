@@ -67,6 +67,10 @@ function createWindow(): void {
     frame: false,
     titleBarStyle: 'hidden',
     backgroundColor: '#f3f3f5',
+    // 打包后窗口默认使用 exe 内嵌图标；开发环境显式指定源码内图标
+    ...(fs.existsSync(path.join(__dirname, '../../src/assets/icon/app_icon.png'))
+      ? { icon: path.join(__dirname, '../../src/assets/icon/app_icon.png') }
+      : {}),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       sandbox: false,

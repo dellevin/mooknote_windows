@@ -413,7 +413,7 @@ onMounted(loadTables)
 }
 .title {
   font-size: 18px;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .body {
   flex: 1;
@@ -428,7 +428,7 @@ onMounted(loadTables)
   flex-direction: column;
   border: 1px solid #eef0f4;
   border-radius: 10px;
-  background: #fff;
+  background: var(--surface);
   overflow: hidden;
 }
 .side-title {
@@ -474,8 +474,8 @@ onMounted(loadTables)
   background: #f4f5f7;
 }
 .table-item.on {
-  background: #1f2329;
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
 }
 .main {
   flex: 1;
@@ -484,7 +484,7 @@ onMounted(loadTables)
   flex-direction: column;
   border: 1px solid #eef0f4;
   border-radius: 10px;
-  background: #fff;
+  background: var(--surface);
   padding: 12px;
 }
 .sql-box {
@@ -629,7 +629,7 @@ onMounted(loadTables)
   color: #3a3f45;
 }
 .ff-name.pk {
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .ff-name.pk::after {
   content: ' 🔑';

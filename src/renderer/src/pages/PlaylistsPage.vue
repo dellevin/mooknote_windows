@@ -178,7 +178,7 @@ function batchDelete(): void {
 }
 .page-title {
   font-size: 18px;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .tools {
   display: flex;
@@ -211,7 +211,7 @@ function batchDelete(): void {
   transform: translateY(-2px);
 }
 .pl-card.picked .pl-cover-wrap {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-ink);
   outline-offset: 1px;
 }
 .pick-dot {
@@ -232,7 +232,8 @@ function batchDelete(): void {
 }
 .pick-dot.on {
   background: var(--accent);
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
+  color: var(--on-accent);
 }
 .pick-dot svg {
   width: 14px;
@@ -241,7 +242,7 @@ function batchDelete(): void {
 .pl-name {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
   margin: 8px 0 4px;
   overflow: hidden;
   text-overflow: ellipsis;

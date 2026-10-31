@@ -251,7 +251,7 @@ onMounted(load)
 .title {
   font-size: 20px;
   font-weight: 700;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .pills {
   display: flex;
@@ -273,12 +273,12 @@ onMounted(load)
     color var(--d1) var(--fluent-ease);
 }
 .pill:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
 }
 .pill.on {
-  background: color-mix(in srgb, var(--accent) 12%, #fff);
-  border-color: color-mix(in srgb, var(--accent) 40%, #fff);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent-ink) 40%, var(--surface));
+  color: var(--accent-ink);
   font-weight: 600;
 }
 .bulk {
@@ -306,8 +306,8 @@ onMounted(load)
   box-shadow: 0 6px 18px rgba(31, 35, 41, 0.07);
 }
 .row.picked {
-  border-color: color-mix(in srgb, var(--accent) 40%, #fff);
-  background: color-mix(in srgb, var(--accent) 5%, #fff);
+  border-color: color-mix(in srgb, var(--accent-ink) 40%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
 }
 .info {
   display: flex;
@@ -323,7 +323,7 @@ onMounted(load)
 }
 .t {
   font-size: 14px;
-  color: #1f2329;
+  color: var(--text-strong);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

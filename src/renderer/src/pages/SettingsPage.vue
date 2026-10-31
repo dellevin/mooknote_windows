@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NButton,
@@ -19,12 +19,11 @@ import type { SelectOption } from 'naive-ui'
 import type { WebDavConfig } from '@shared/types'
 import {
   FONT_OPTIONS,
-  ICON_OPTIONS,
   applyFont,
-  applyIcon,
   preloadFontFaces,
   fontPreviewStack
 } from '@/utils/theme'
+import { SKINS, currentSkin, applySkin } from '@/utils/skin'
 import { renderMarkdown } from '@/utils/markdown'
 
 interface AppInfo {
@@ -86,6 +85,7 @@ function toggleDevTools(): void {
 // ── 维护：清理缓存 / 清理空文件夹 ──
 const clearingCache = ref(false)
 const cleaningEmptyDirs = ref(false)
+const purgingDeleted = ref(false)
 
 function fmtBytesSize(n: number): string {
   if (!n) return '0 B'
@@ -133,6 +133,29 @@ async function cleanEmptyDirs(): Promise<void> {
   } finally {
     cleaningEmptyDirs.value = false
   }
+}
+
+function purgeDeleted(): void {
+  dialog.warning({
+    title: '清除所有软删除数据',
+    content:
+      '将物理删除各模块回收站中（is_deleted=1）的全部条目，删除后无法恢复。条目引用的图片文件可在完成后用「清理缓存数据」回收磁盘空间。确定继续？',
+    positiveText: '永久删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      purgingDeleted.value = true
+      try {
+        const r = await window.mook.maintenance.purgeDeleted()
+        r.rows
+          ? message.success(`已永久删除 ${r.rows} 条回收站数据（${r.tables} 张表）`)
+          : message.info('回收站是空的')
+      } catch (e) {
+        message.error('清除失败：' + String(e))
+      } finally {
+        purgingDeleted.value = false
+      }
+    }
+  })
 }
 
 // ── 数据库查看跳转到独立页面 /db ──
@@ -511,7 +534,8 @@ async function davUpload(): Promise<void> {
 type BackupMode = 'full' | 'inc'
 type IncAction = 'upload' | 'download' | 'restore' | 'forcePush'
 const backupMode = ref<BackupMode>('full')
-const incBusy = ref(false)
+// 当前正在执行的增量动作；null 表示空闲。按钮只在自己动作执行时转圈
+const incBusy = ref<IncAction | null>(null)
 const incLastSync = ref('')
 const incVersion = ref<number | null>(null)
 const incProgress = ref({
@@ -523,11 +547,6 @@ const incProgress = ref({
   downImages: 0,
   dedupImages: 0
 })
-
-const backupModeOptions: SelectOption[] = [
-  { label: '整包 zip（旧模式，远程保留最新 5 个备份）', value: 'full' },
-  { label: '增量同步（多端双向合并，与手机版互通）', value: 'inc' }
-]
 
 async function onBackupModePick(v: BackupMode): Promise<void> {
   backupMode.value = v
@@ -549,7 +568,7 @@ const INC_CONFIRM: Partial<Record<IncAction, string>> = {
 function runInc(action: IncAction): void {
   const exec = async (): Promise<void> => {
     if (!(await persistDavSilent())) return
-    incBusy.value = true
+    incBusy.value = action
     incProgress.value = {
       stage: 'connect',
       message: '准备中…',
@@ -612,7 +631,7 @@ function runInc(action: IncAction): void {
       message.error('同步失败：' + String(e))
     } finally {
       off()
-      incBusy.value = false
+      incBusy.value = null
       d.destroy()
     }
   }
@@ -688,25 +707,30 @@ async function davDownload(): Promise<void> {
   })
 }
 
-// ── 外观：字体 / 窗口图标（切换即自动保存） ──
-const uiFont = ref('system')
-const uiIcon = ref('default')
+// ── 外观：皮肤 / 字体（切换即自动保存） ──
+const skinKey = computed(() => currentSkin.value.key)
 
-async function onFontPick(v: string): Promise<void> {
-  uiFont.value = v
+async function onSkinPick(key: string): Promise<void> {
   try {
-    await window.mook.prefs.set('uiFont', v)
-    applyFont(v)
+    await applySkin(key)
   } catch (e) {
     message.error('保存失败：' + String(e))
   }
 }
 
-async function onIconPick(key: string): Promise<void> {
-  uiIcon.value = key
+const uiFont = ref('system')
+// 预览区跟随鼠标悬停的卡片，移出后回到当前选中字体
+const previewFont = ref('system')
+const previewOpt = computed(
+  () => FONT_OPTIONS.find((f) => f.key === previewFont.value) ?? FONT_OPTIONS[0]
+)
+
+async function onFontPick(v: string): Promise<void> {
+  uiFont.value = v
+  previewFont.value = v
   try {
-    await window.mook.prefs.set('uiIcon', key)
-    await applyIcon(key)
+    await window.mook.prefs.set('uiFont', v)
+    applyFont(v)
   } catch (e) {
     message.error('保存失败：' + String(e))
   }
@@ -716,7 +740,7 @@ onMounted(async () => {
   preloadFontFaces()
   info.value = await window.mook.appInfo()
   uiFont.value = await window.mook.prefs.get<string>('uiFont', 'system')
-  uiIcon.value = await window.mook.prefs.get<string>('uiIcon', 'default')
+  previewFont.value = uiFont.value
   tmdbToken.value = await window.mook.prefs.get<string>('tmdbApiToken', '')
   tmdbAuthType.value = await window.mook.prefs.get<'bearer' | 'apikey'>('tmdbAuthType', 'bearer')
   tmdbProxy.value = await window.mook.prefs.get<string>('tmdbProxy', '')
@@ -756,47 +780,70 @@ onMounted(async () => {
     <div class="panels">
       <div id="set-appearance" class="panel">
         <NCard title="软件外观" size="small" class="card">
-          <p class="hint">自定义应用界面字体与窗口图标，选择后自动保存并立即生效，下次启动时保留。</p>
+          <p class="hint">自定义个性皮肤与界面字体，选择后自动保存并立即生效，下次启动时保留。</p>
 
           <div class="form-row icon-row">
-            <label class="lbl">界面字体</label>
-            <div class="icon-picker">
+            <label class="lbl">个性皮肤</label>
+            <div class="skin-picker">
               <button
-                v-for="ft in FONT_OPTIONS"
-                :key="ft.key"
+                v-for="sk in SKINS"
+                :key="sk.key"
                 type="button"
-                class="icon-tile font-tile"
-                :class="{ on: uiFont === ft.key }"
-                :title="ft.label"
-                @click="onFontPick(ft.key)"
+                class="skin-tile"
+                :class="{ on: skinKey === sk.key }"
+                :title="sk.label"
+                @click="onSkinPick(sk.key)"
               >
-                <span
-                  class="font-preview"
-                  :style="{
-                    fontFamily: fontPreviewStack(ft),
-                    transform: `translateY(${ft.yOffset}em)`
-                  }"
-                >Aa 永</span>
-                <span class="icon-name">{{ ft.label }}</span>
+                <span class="skin-card" :style="{ background: sk.swatch }">
+                  <span class="skin-glyph" :style="{ color: sk.glyph }">M</span>
+                </span>
+                <span class="skin-name">{{ sk.label }}</span>
               </button>
             </div>
           </div>
 
-          <div class="form-row icon-row">
-            <label class="lbl">窗口图标</label>
-            <div class="icon-picker">
-              <button
-                v-for="ic in ICON_OPTIONS"
-                :key="ic.key"
-                type="button"
-                class="icon-tile"
-                :class="{ on: uiIcon === ic.key }"
-                :title="ic.label"
-                @click="onIconPick(ic.key)"
-              >
-                <img :src="ic.url" :alt="ic.label" draggable="false" />
-                <span class="icon-name">{{ ic.label }}</span>
-              </button>
+          <div class="form-row font-row-block">
+            <label class="lbl">界面字体</label>
+            <div class="font-stage">
+              <div class="font-cards">
+                <button
+                  v-for="ft in FONT_OPTIONS"
+                  :key="ft.key"
+                  type="button"
+                  class="font-card"
+                  :class="{ on: uiFont === ft.key }"
+                  :title="ft.desc"
+                  @click="onFontPick(ft.key)"
+                  @mouseenter="previewFont = ft.key"
+                  @mouseleave="previewFont = uiFont"
+                >
+                  <span class="font-card-yong" :style="{ fontFamily: fontPreviewStack(ft) }">
+                    永
+                  </span>
+                  <span class="font-card-name" :style="{ fontFamily: fontPreviewStack(ft) }">
+                    {{ ft.label }}
+                  </span>
+                </button>
+              </div>
+
+              <div class="font-preview-box">
+                <div class="font-preview-head">
+                  <span class="font-preview-name">{{ previewOpt.label }}</span>
+                  <span class="font-preview-desc">{{ previewOpt.desc }}</span>
+                </div>
+                <p
+                  class="font-preview-text"
+                  :style="{ fontFamily: fontPreviewStack(previewOpt) }"
+                >
+                  永和九年，岁在癸丑，暮春之初，会于会稽山阴之兰亭，修禊事也。
+                </p>
+                <p
+                  class="font-preview-en"
+                  :style="{ fontFamily: fontPreviewStack(previewOpt) }"
+                >
+                  ABCDEFG abcdefg 0123456789 — The quick brown fox jumps over the lazy dog.
+                </p>
+              </div>
             </div>
           </div>
         </NCard>
@@ -968,27 +1015,6 @@ onMounted(async () => {
           </template>
 
           <div class="form-row">
-            <label class="lbl">备份模式</label>
-            <NSelect
-              :value="backupMode"
-              :options="backupModeOptions"
-              size="small"
-              class="ctrl"
-              @update:value="onBackupModePick"
-            />
-          </div>
-          <p class="hint">
-            <template v-if="backupMode === 'inc'">
-              增量模式：与手机版共用同一目录（<code>inc2/</code>）双向合并，按更新时间解决冲突、自动传播删除，只传变化的数据与图片，云端自动压实。首次同步会建立基线。
-              <template v-if="incVersion != null"> · 云端基线 v{{ incVersion }}</template>
-            </template>
-            <template v-else>
-              上传为单个 zip 备份（与安卓版一致），远程保留最新 5 个；下载取最新备份覆盖本地，兼容远程的分片目录备份。
-            </template>
-            支持 Basic / Digest 认证。
-          </p>
-
-          <div class="form-row">
             <label class="lbl">服务器地址</label>
             <NInput
               v-model:value="davCfg.url"
@@ -1022,26 +1048,93 @@ onMounted(async () => {
               保存配置
             </NButton>
             <NButton size="small" :loading="davTesting" @click="testDav">测试连接</NButton>
-            <template v-if="backupMode === 'full'">
-              <NButton size="small" :loading="davUploading" @click="davUpload">上传备份</NButton>
-              <NButton size="small" :loading="davDownloading" @click="davDownload">
-                下载并恢复
-              </NButton>
-            </template>
           </NSpace>
 
-          <NSpace v-if="backupMode === 'inc'" :size="10" class="save-row">
-            <NButton size="small" type="primary" :loading="incBusy" @click="runInc('upload')">
-              立即同步（双向）
-            </NButton>
-            <NButton size="small" :loading="incBusy" @click="runInc('download')">仅下载</NButton>
-            <NButton size="small" :loading="incBusy" @click="runInc('restore')">
-              恢复（以云端为准）
-            </NButton>
-            <NButton size="small" :loading="incBusy" @click="runInc('forcePush')">
-              强制推送（以本机为准）
-            </NButton>
-          </NSpace>
+          <label class="lbl backup-mode-lbl">备份模式</label>
+          <div class="backup-modes">
+            <div
+              class="mode-card"
+              :class="{ on: backupMode === 'full' }"
+              @click="onBackupModePick('full')"
+            >
+              <div class="mode-card-head">
+                <span class="mode-radio"></span>
+                <span class="mode-name">整包 zip 备份</span>
+              </div>
+              <p class="mode-desc">
+                上传为单个 zip 备份（与安卓版一致），远程保留最新 5 个；下载取最新备份覆盖本地。
+              </p>
+              <div class="mode-actions">
+                <NButton
+                  size="tiny"
+                  :disabled="backupMode !== 'full'"
+                  :loading="davUploading"
+                  @click.stop="davUpload"
+                >
+                  上传备份
+                </NButton>
+                <NButton
+                  size="tiny"
+                  :disabled="backupMode !== 'full'"
+                  :loading="davDownloading"
+                  @click.stop="davDownload"
+                >
+                  下载并恢复
+                </NButton>
+              </div>
+            </div>
+
+            <div
+              class="mode-card"
+              :class="{ on: backupMode === 'inc' }"
+              @click="onBackupModePick('inc')"
+            >
+              <div class="mode-card-head">
+                <span class="mode-radio"></span>
+                <span class="mode-name">增量同步</span>
+                <span v-if="incVersion != null" class="mode-ver">v{{ incVersion }}</span>
+              </div>
+              <p class="mode-desc">
+                与手机版共用同一目录（<code>inc2/</code>）双向合并，按更新时间解决冲突、自动传播删除，只传变化的数据与图片，云端自动压实。
+              </p>
+              <div class="mode-actions">
+                <NButton
+                  size="tiny"
+                  type="primary"
+                  :disabled="backupMode !== 'inc' || incBusy !== null"
+                  :loading="incBusy === 'upload'"
+                  @click.stop="runInc('upload')"
+                >
+                  立即同步（双向）
+                </NButton>
+                <NButton
+                  size="tiny"
+                  :disabled="backupMode !== 'inc' || incBusy !== null"
+                  :loading="incBusy === 'download'"
+                  @click.stop="runInc('download')"
+                >
+                  仅下载
+                </NButton>
+                <NButton
+                  size="tiny"
+                  :disabled="backupMode !== 'inc' || incBusy !== null"
+                  :loading="incBusy === 'restore'"
+                  @click.stop="runInc('restore')"
+                >
+                  恢复
+                </NButton>
+                <NButton
+                  size="tiny"
+                  :disabled="backupMode !== 'inc' || incBusy !== null"
+                  :loading="incBusy === 'forcePush'"
+                  @click.stop="runInc('forcePush')"
+                >
+                  强制推送
+                </NButton>
+              </div>
+            </div>
+          </div>
+          <p class="hint">支持 Basic / Digest 认证。</p>
         </NCard>
       </div>
 
@@ -1106,9 +1199,21 @@ onMounted(async () => {
             <NButton size="small" :loading="cleaningEmptyDirs" @click="cleanEmptyDirs">
               清理空文件夹
             </NButton>
+            <NButton
+              size="small"
+              type="error"
+              secondary
+              :loading="purgingDeleted"
+              @click="purgeDeleted"
+            >
+              清除所有软删除
+            </NButton>
           </NSpace>
         </NCard>
       </div>
+
+      <!-- 底部占位：保证最后一个分区也能滚动到顶部（标题紧贴 tab 栏下方） -->
+      <div class="panels-bottom-spacer" aria-hidden="true"></div>
     </div>
 
     <NModal
@@ -1134,8 +1239,14 @@ onMounted(async () => {
 .title {
   flex-shrink: 0;
   font-size: 18px;
-  color: #1f2329;
+  font-weight: 800;
+  color: var(--text-strong);
   margin-bottom: 16px;
+}
+/* 所有卡片标题加黑加粗 */
+.page :deep(.n-card-header__main) {
+  font-weight: 700;
+  color: var(--text-strong);
 }
 .tabs {
   flex-shrink: 0;
@@ -1169,10 +1280,10 @@ onMounted(async () => {
   transition: background var(--d1) var(--fluent-ease);
 }
 .tab:hover {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .tab.on {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 .tab.on::after {
@@ -1187,6 +1298,11 @@ onMounted(async () => {
 }
 .panel {
   min-height: 120px;
+}
+.panels-bottom-spacer {
+  height: 65vh;
+  flex-shrink: 0;
+  pointer-events: none;
 }
 .card {
   margin-bottom: 16px;
@@ -1224,65 +1340,240 @@ onMounted(async () => {
 .icon-row {
   align-items: flex-start;
 }
-.icon-picker {
+
+/* 个性皮肤：大色块 + 名称 */
+.skin-picker {
   flex: 1;
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 18px;
 }
-.icon-tile {
+.skin-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+.skin-card {
+  position: relative;
+  width: 188px;
+  height: 104px;
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid transparent;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    transform 0.12s ease;
+}
+.skin-tile:hover .skin-card {
+  transform: translateY(-2px);
+}
+.skin-tile.on .skin-card {
+  border-color: var(--accent-ink);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-ink) 18%, transparent);
+}
+.skin-glyph {
+  position: absolute;
+  right: 16px;
+  bottom: 2px;
+  font-size: 64px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -2px;
+}
+.skin-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+  padding-left: 2px;
+}
+
+/* 界面字体：大卡片 + 预览区 */
+.font-row-block {
+  margin-top: 4px;
+  align-items: flex-start;
+}
+.font-row-block .lbl {
+  padding-top: 6px;
+}
+.font-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.font-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.font-card {
+  width: 148px;
+  height: 104px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  width: 76px;
-  padding: 10px 6px 8px;
-  border: 1px solid #eef0f4;
-  border-radius: 10px;
-  background: #fff;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #e9ebf1;
+  border-radius: 12px;
+  background: var(--surface);
   cursor: pointer;
   transition:
     border-color 0.12s ease,
-    box-shadow 0.12s ease;
+    box-shadow 0.12s ease,
+    transform 0.12s ease;
 }
-.icon-tile:hover {
-  border-color: #cfd4dd;
-  box-shadow: 0 2px 8px rgba(17, 17, 17, 0.08);
+.font-card:hover {
+  border-color: color-mix(in srgb, var(--accent-ink) 40%, #e9ebf1);
+  box-shadow: 0 4px 14px rgba(17, 17, 17, 0.08);
+  transform: translateY(-2px);
 }
-.icon-tile.on {
-  border-color: #1f2329;
-  box-shadow: 0 0 0 1px #1f2329 inset;
+.font-card.on {
+  border-color: var(--accent-ink);
+  box-shadow: 0 0 0 1px var(--accent-ink) inset;
 }
-.icon-tile img {
-  width: 40px;
-  height: 40px;
-  object-fit: contain;
-  border-radius: 8px;
-}
-.icon-name {
-  font-size: 12px;
-  color: #5b616c;
-  white-space: nowrap;
-  overflow: hidden;
-  max-width: 100%;
-  text-overflow: ellipsis;
-}
-.font-preview {
-  height: 40px;
-  min-width: 40px;
-  padding: 0 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 17px;
+.font-card-yong {
+  font-size: 38px;
+  font-weight: 600;
   line-height: 1;
+  color: var(--text-strong);
+}
+.font-card-name {
+  font-size: 12.5px;
+  color: #57606a;
   white-space: nowrap;
-  color: #1f2329;
-  border-radius: 8px;
-  background: #f4f5f8;
+}
+
+/* 实时预览区：跟随悬停/选中字体 */
+.font-preview-box {
+  border: 1px solid #e9ebf1;
+  border-radius: 12px;
+  background: #fafbfc;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.font-preview-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.font-preview-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.font-preview-desc {
+  font-size: 12px;
+  color: #8a909c;
+}
+.font-preview-text {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text-strong);
+}
+.font-preview-en {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #6b7280;
 }
 .save-row {
   margin-top: 14px;
+}
+
+/* ── WebDAV 备份模式选择卡片 ── */
+.backup-mode-lbl {
+  display: block;
+  margin: 18px 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+.backup-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.mode-card {
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  border: 1.5px solid #e6e8ee;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.mode-card:hover {
+  border-color: color-mix(in srgb, var(--accent-ink) 40%, #e6e8ee);
+}
+.mode-card.on {
+  border-color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 7%, #ffffff);
+  box-shadow: 0 0 0 1px var(--accent-ink) inset;
+}
+.mode-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.mode-radio {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid #c0c4cc;
+  flex-shrink: 0;
+  position: relative;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+.mode-card.on .mode-radio {
+  border-color: var(--accent-ink);
+}
+.mode-card.on .mode-radio::after {
+  content: '';
+  position: absolute;
+  inset: 2.5px;
+  border-radius: 50%;
+  background: var(--accent-ink);
+}
+.mode-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.mode-ver {
+  margin-left: auto;
+  font-size: 11px;
+  color: #8a909c;
+}
+.mode-desc {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #8a909c;
+  margin-bottom: 12px;
+  flex: 1;
+}
+.mode-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 /* ── 在线搜索分区 ── */
@@ -1293,8 +1584,8 @@ onMounted(async () => {
 }
 .sec-title {
   font-size: 13px;
-  font-weight: 600;
-  color: #1f2329;
+  font-weight: 700;
+  color: var(--text-strong);
   margin-bottom: 10px;
 }
 
@@ -1356,7 +1647,7 @@ onMounted(async () => {
   margin-bottom: 4px;
 }
 .token-doc :deep(a) {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .token-doc :deep(code) {
   background: #f2f3f5;

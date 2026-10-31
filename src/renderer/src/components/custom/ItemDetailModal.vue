@@ -159,7 +159,7 @@ function isoDate(s: unknown): string {
   width: 680px;
   max-width: 94vw;
   max-height: 86vh;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 18px 24px;
   display: flex;

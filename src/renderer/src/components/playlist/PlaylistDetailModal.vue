@@ -246,7 +246,7 @@ function askDelete(): void {
   width: 720px;
   max-width: 94vw;
   max-height: 86vh;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   overflow: hidden;
   display: flex;
@@ -282,7 +282,7 @@ function askDelete(): void {
 }
 .title {
   font-size: 22px;
-  color: #1f2329;
+  color: var(--text-strong);
   margin-bottom: 10px;
 }
 .badges {
@@ -309,7 +309,7 @@ function askDelete(): void {
 .section-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .item-row {
   display: flex;
@@ -346,7 +346,7 @@ function askDelete(): void {
 .item-title {
   font-size: 14px;
   font-weight: 500;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .item-meta {
   display: flex;
@@ -365,7 +365,7 @@ function askDelete(): void {
 .picker {
   width: 560px;
   max-width: 92vw;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 20px 24px;
 }
@@ -411,7 +411,7 @@ function askDelete(): void {
 .pick-title {
   flex: 1;
   font-size: 13.5px;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .pick-added {
   font-size: 12px;

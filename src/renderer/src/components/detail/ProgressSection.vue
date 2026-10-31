@@ -345,7 +345,7 @@ async function remove(e: ProgressEntry): Promise<void> {
   border-radius: 8px;
 }
 .row.picked {
-  background: color-mix(in srgb, var(--accent) 6%, #fff);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
 }
 .pick-box {
   flex-shrink: 0;
@@ -356,7 +356,7 @@ async function remove(e: ProgressEntry): Promise<void> {
 }
 .no {
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
   margin-right: 8px;
 }
 .t {
@@ -389,7 +389,7 @@ async function remove(e: ProgressEntry): Promise<void> {
 .editor {
   width: 600px;
   max-width: 92vw;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 20px 24px;
 }

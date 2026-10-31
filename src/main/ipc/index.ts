@@ -7,8 +7,10 @@ import { getDataRoot, dbPath, imagesRoot } from '../paths'
 import { prefs } from '../prefs'
 import {
   clearCacheData,
-  cleanEmptyImageDirs
+  cleanEmptyImageDirs,
+  purgeSoftDeleted
 } from '../services/maintenanceService'
+import { pickImageFiles, importImage } from '../services/imageService'
 
 // 友好的系统名称，如「Windows 11 x64」「macOS 14 arm64」「Linux x64」
 function friendlyPlatform(): string {
@@ -238,7 +240,15 @@ export function registerIpc(): void {
     return true
   })
 
+  // 个人资料头像：选择本地图片，复制进 images/avatar/profile/ 后存相对路径
+  ipcMain.handle('profile:pick-avatar', async (): Promise<string | null> => {
+    const files = await pickImageFiles(false)
+    if (!files.length) return null
+    return importImage('avatar', 'profile', files[0])
+  })
+
   // 维护：清理缓存数据 / 清理空文件夹
   ipcMain.handle('maintenance:clear-cache', () => clearCacheData())
   ipcMain.handle('maintenance:clean-empty-dirs', () => cleanEmptyImageDirs())
+  ipcMain.handle('maintenance:purge-deleted', () => purgeSoftDeleted())
 }

@@ -108,8 +108,8 @@ defineProps<{ field: CustomFieldDef }>()
 .fp-badge {
   font-size: 10px;
   font-weight: 500;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, #fff);
+  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
   border-radius: 4px;
   padding: 0 5px;
   margin-left: 2px;
@@ -170,9 +170,9 @@ defineProps<{ field: CustomFieldDef }>()
   color: #9aa0ac;
 }
 .fp-chip.on {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, #fff);
-  border-color: color-mix(in srgb, var(--accent) 30%, #fff);
+  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent-ink) 30%, var(--surface));
 }
 .fp-stars {
   display: flex;

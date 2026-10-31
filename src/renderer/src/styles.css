@@ -41,11 +41,104 @@ textarea,
   --d1: 100ms;
   --d2: 200ms;
   --d3: 250ms;
-  /* 黑白极简强调色（固定近黑，不跟随系统） */
+
+  /* 强调色（主按钮等填充控件跟随皮肤反色） */
   --accent: #1f2329;
+  --accent-hover: #3a3f45;
+  --accent-pressed: #000000;
+  --on-accent: #ffffff;
+  /* 浅色表面上的强调文字/描边色（始终保持深色，不随反色变白） */
+  --accent-ink: #1f2329;
+  /* 文字 */
+  --text-strong: #1f2329;
+  --text: #555555;
+  --text-dim: #9aa0ac;
+  /* 表面 */
+  --surface: #ffffff;
+  --app-bg: #f3f3f5;
+  --content-bg: rgba(255, 255, 255, 0.74);
   --fluent-card: rgba(255, 255, 255, 0.85);
   --fluent-stroke: rgba(17, 17, 17, 0.06);
+  --stroke-strong: rgba(17, 17, 17, 0.14);
   --fluent-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+  /* 标题栏按钮 */
+  --title-text: #1b1b1b;
+  --title-sub: rgba(0, 0, 0, 0.78);
+  --tb-btn-text: #5b616c;
+  --tb-btn-hover-bg: rgba(0, 0, 0, 0.07);
+  --tb-btn-hover-text: #1f2329;
+  /* 其他 */
+  --select-bar-bg: rgba(255, 255, 255, 0.92);
+  --scroll-thumb: rgba(0, 0, 0, 0.22);
+
+  /* ── 左侧边栏皮肤令牌（默认：浅色） ── */
+  --rail-bg: rgba(252, 252, 253, 0.72);
+  --rail-stroke: rgba(17, 17, 17, 0.06);
+  --rail-text: #555555;
+  --rail-text-strong: #1f2329;
+  --rail-text-dim: #9aa0ac;
+  --rail-divider: #eef0f4;
+  --rail-item-hover: rgba(0, 0, 0, 0.05);
+  --rail-handle: rgba(31, 35, 41, 0.12);
+  --rail-avatar-fallback: #7d8698;
+  --rail-avatar-bg: linear-gradient(135deg, #dfe4f2, #eef0f5);
+}
+
+/* 网易红：仅左侧边栏变红 */
+:root[data-skin='red'] {
+  --accent: #ff3a3a;
+  --accent-hover: #ff6363;
+  --accent-pressed: #e02424;
+  --on-accent: #ffffff;
+  --accent-ink: #ff3a3a;
+  --rail-bg: #ff3a3a;
+  --rail-stroke: rgba(255, 255, 255, 0.22);
+  --rail-text: rgba(255, 255, 255, 0.82);
+  --rail-text-strong: #ffffff;
+  --rail-text-dim: rgba(255, 255, 255, 0.66);
+  --rail-divider: rgba(255, 255, 255, 0.22);
+  --rail-item-hover: rgba(255, 255, 255, 0.14);
+  --rail-handle: rgba(255, 255, 255, 0.28);
+  --rail-avatar-fallback: #ffd2d2;
+  --rail-avatar-bg: linear-gradient(135deg, #ff7a7a, #e02424);
+}
+
+/* 腾讯蓝：左侧边栏变蓝 */
+:root[data-skin='blue'] {
+  --accent: #0052d9;
+  --accent-hover: #2e6ee0;
+  --accent-pressed: #003fb0;
+  --on-accent: #ffffff;
+  --accent-ink: #0052d9;
+  --rail-bg: #0052d9;
+  --rail-stroke: rgba(255, 255, 255, 0.22);
+  --rail-text: rgba(255, 255, 255, 0.82);
+  --rail-text-strong: #ffffff;
+  --rail-text-dim: rgba(255, 255, 255, 0.66);
+  --rail-divider: rgba(255, 255, 255, 0.22);
+  --rail-item-hover: rgba(255, 255, 255, 0.14);
+  --rail-handle: rgba(255, 255, 255, 0.28);
+  --rail-avatar-fallback: #bcd2f5;
+  --rail-avatar-bg: linear-gradient(135deg, #3f7ae6, #003fb0);
+}
+
+/* 酷炫黑：仅左侧边栏变深，主色为翡翠绿 */
+:root[data-skin='black'] {
+  --accent: #00b578;
+  --accent-hover: #1fc98f;
+  --accent-pressed: #009a66;
+  --on-accent: #ffffff;
+  --accent-ink: #00996a;
+  --rail-bg: #1a1a23;
+  --rail-stroke: rgba(255, 255, 255, 0.08);
+  --rail-text: #b6b6c2;
+  --rail-text-strong: #f4f4f8;
+  --rail-text-dim: #7b7b88;
+  --rail-divider: rgba(255, 255, 255, 0.1);
+  --rail-item-hover: rgba(255, 255, 255, 0.08);
+  --rail-handle: rgba(255, 255, 255, 0.2);
+  --rail-avatar-fallback: #9a9aa8;
+  --rail-avatar-bg: linear-gradient(135deg, #34343f, #262631);
 }
 
 .app-titlebar {
@@ -55,13 +148,13 @@ textarea,
   -webkit-app-region: drag;
   user-select: none;
   flex: 0 0 auto;
-  color: #1b1b1b;
+  color: var(--title-text);
 }
 
 .app-titlebar .tb-title {
   font-size: 13px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.78);
+  color: var(--title-sub);
   letter-spacing: 0.2px;
   line-height: 1;
 }
@@ -139,7 +232,7 @@ body {
 .n-input:focus-visible,
 a:focus-visible,
 button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-ink);
   outline-offset: 1px;
 }
 
@@ -198,8 +291,8 @@ img[src^='mookimg:'] {
   border-radius: 19px;
   border: none;
   cursor: pointer;
-  background: #1f2329;
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
   font-size: 32px;
   font-weight: 300;
   line-height: 1;
@@ -214,7 +307,7 @@ img[src^='mookimg:'] {
     box-shadow 0.14s var(--fluent-ease);
 }
 .fab-add:hover {
-  background: #000;
+  background: var(--accent-hover);
   transform: translateY(-2px) scale(1.04);
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32);
 }
@@ -250,17 +343,17 @@ img[src^='mookimg:'] {
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--select-bar-bg);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  border: 1px solid rgba(17, 17, 17, 0.08);
+  border: 1px solid var(--fluent-stroke);
   border-radius: 999px;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
   z-index: 900;
 }
 .select-bar .sel-count {
   font-size: 13px;
-  color: #1f2329;
+  color: var(--text-strong);
   font-weight: 600;
   min-width: 46px;
   text-align: center;
@@ -272,7 +365,7 @@ img[src^='mookimg:'] {
   scrollbar-color: rgba(0, 0, 0, 0) transparent;
 }
 *:hover {
-  scrollbar-color: rgba(0, 0, 0, 0.28) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 *::-webkit-scrollbar {
   width: 12px;
@@ -285,10 +378,10 @@ img[src^='mookimg:'] {
   background-clip: content-box;
 }
 *:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.22);
+  background-color: var(--scroll-thumb);
 }
 *::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.38);
+  background-color: var(--scroll-thumb);
 }
 *::-webkit-scrollbar-corner {
   background: transparent;

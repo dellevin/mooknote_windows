@@ -146,7 +146,7 @@ async function purge(id: string): Promise<void> {
   width: 600px;
   max-width: 92vw;
   height: 66vh;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 18px 22px;
   display: flex;
@@ -210,7 +210,7 @@ async function purge(id: string): Promise<void> {
 }
 .t {
   font-size: 14px;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .y {
   font-size: 12px;

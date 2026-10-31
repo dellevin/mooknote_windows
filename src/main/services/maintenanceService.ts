@@ -320,6 +320,34 @@ function deleteOrphanImageAssets(validLogical: Set<string>): number {
 }
 
 /**
+ * 物理清除所有表中 is_deleted=1 的软删除行（不可恢复）。
+ * 其图片文件会成为孤立文件，可随后用「清理缓存数据」回收磁盘空间。
+ * 返回删除行数与涉及表数。
+ */
+export function purgeSoftDeleted(): { rows: number; tables: number } {
+  const db = getDb()
+  const tables = (
+    db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
+      .all() as { name: string }[]
+  ).map((r) => r.name)
+  let rows = 0
+  let tablesHit = 0
+  const tx = db.transaction(() => {
+    for (const table of tables) {
+      if (!columnExists(table, 'is_deleted')) continue
+      const info = db.prepare(`DELETE FROM ${table} WHERE is_deleted = 1`).run()
+      if (info.changes > 0) {
+        rows += info.changes
+        tablesHit++
+      }
+    }
+  })
+  tx()
+  return { rows, tables: tablesHit }
+}
+
+/**
  * 清理 images/ 下的空文件夹（自底向上；保留 images 根目录本身）。
  * 删除孤立图片后常残留空的实体目录。返回删除的空文件夹数。
  */

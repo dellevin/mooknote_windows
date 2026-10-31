@@ -206,12 +206,12 @@ async function pickImages(): Promise<void> {
     border-color 0.15s;
 }
 .status-chip:hover {
-  border-color: color-mix(in srgb, var(--accent) 40%, #fff);
+  border-color: color-mix(in srgb, var(--accent-ink) 40%, var(--surface));
 }
 .status-chip.on {
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   font-weight: 500;
 }
 .num {

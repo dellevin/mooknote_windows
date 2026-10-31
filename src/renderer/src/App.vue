@@ -3,28 +3,30 @@ import { darkTheme, zhCN, dateZhCN } from 'naive-ui'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { toImgUrl } from '@/utils/image'
-import { applyFont, applyIcon, currentFontStack } from '@/utils/theme'
+import { applyFont, currentFontStack } from '@/utils/theme'
+import { currentSkin, initSkin } from '@/utils/skin'
 import type { CustomModule } from '@shared/types'
 import ModuleIcon from '@/components/custom/ModuleIcon.vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
 
+// 皮肤不启用暗色主题，应用整体始终浅色
 const isDark = computed(() => false)
 
-// 黑白极简：强调色固定近黑，不跟随系统主题色
-const accent = ref('#1f2329')
 const material = ref<'mica' | 'solid'>('solid')
 
-const themeOverrides = computed(() => ({
+const themeOverrides = computed(() => {
+  const s = currentSkin.value
+  return {
   common: {
     fontFamily: currentFontStack.value,
     fontFamilyMono: "'Cascadia Code', Consolas, monospace",
     // 圆角层级对齐手机端：控件 8/10、卡片 12、弹窗 14
     borderRadius: '10px',
     borderRadiusSmall: '8px',
-    primaryColor: accent.value,
-    primaryColorHover: '#3a3f45',
-    primaryColorPressed: '#000000',
-    primaryColorSuppl: accent.value,
+    primaryColor: s.primary,
+    primaryColorHover: s.primaryHover,
+    primaryColorPressed: s.primaryPressed,
+    primaryColorSuppl: s.primary,
     // Fluent 细描边
     borderColor: 'rgba(17,17,17,0.14)',
     borderColorHover: 'rgba(17,17,17,0.32)',
@@ -41,7 +43,21 @@ const themeOverrides = computed(() => ({
     borderRadiusSmall: '8px',
     borderRadiusMedium: '10px',
     borderRadiusLarge: '12px',
-    fontWeight: '500'
+    fontWeight: '500',
+    // 实心主按钮：主色底 + onPrimary 文字
+    textColorPrimary: s.onPrimary,
+    textColorHoverPrimary: s.onPrimary,
+    textColorPressedPrimary: s.onPrimary,
+    textColorFocusPrimary: s.onPrimary,
+    // 文字/幽灵按钮在浅色表面上，必须用 ink（黑皮肤下不能用近白）
+    textColorTextPrimary: s.ink,
+    textColorTextHoverPrimary: s.ink,
+    textColorTextPressedPrimary: s.ink,
+    textColorTextFocusPrimary: s.ink,
+    textColorGhostPrimary: s.ink,
+    textColorGhostHoverPrimary: s.ink,
+    textColorGhostPressedPrimary: s.ink,
+    textColorGhostFocusPrimary: s.ink
   },
   Input: {
     borderRadius: '8px'
@@ -60,10 +76,38 @@ const themeOverrides = computed(() => ({
   Tag: {
     borderRadius: '6px'
   },
+  // 选中类小控件在浅色表面上保持深色墨点（近白主色会看不见）
+  Checkbox: {
+    colorChecked: s.primary,
+    borderChecked: `1px solid ${s.primary}`,
+    borderFocus: `1px solid ${s.primary}`,
+    checkMarkColor: s.onPrimary
+  },
+  Radio: {
+    dotColorActive: s.ink,
+    boxShadowActive: `inset 0 0 0 1px ${s.ink}`,
+    boxShadowHover: `inset 0 0 0 1px ${s.ink}`,
+    buttonTextColorActive: s.ink
+  },
+  Switch: {
+    railColorActive: s.primary,
+    buttonColor: s.onPrimary
+  },
+  Tabs: {
+    tabTextColorActiveLine: s.ink,
+    tabTextColorHoverLine: s.ink,
+    tabTextColorActiveBar: s.ink,
+    tabTextColorActiveCard: s.ink,
+    barColor: s.ink
+  },
+  Pagination: {
+    itemTextColorActive: s.ink
+  },
   Menu: {
     borderRadius: '10px'
   }
-}))
+  }
+})
 
 // 24x24 线性图标（stroke = currentColor），内容为静态常量
 const I = {
@@ -161,6 +205,7 @@ const showGlobalSearch = computed(() => {
 watch(
   () => route.fullPath,
   (p) => {
+    profileOpen.value = false
     if (p.startsWith('/custom')) void loadCustomModules()
   }
 )
@@ -168,6 +213,38 @@ watch(
 const nickname = ref('')
 const motto = ref('')
 const avatarUrl = ref('')
+const profileOpen = ref(false)
+const profileEditing = ref(false)
+const draftNickname = ref('')
+const draftMotto = ref('')
+
+function startEditProfile(): void {
+  draftNickname.value = nickname.value
+  draftMotto.value = motto.value
+  profileEditing.value = true
+}
+function cancelEditProfile(): void {
+  profileEditing.value = false
+}
+async function saveProfile(): Promise<void> {
+  nickname.value = draftNickname.value.trim() || 'MookNote'
+  motto.value = draftMotto.value.trim()
+  await Promise.all([
+    window.mook.prefs.set('nickname', nickname.value),
+    window.mook.prefs.set('motto', motto.value)
+  ])
+  profileEditing.value = false
+}
+async function pickAvatar(): Promise<void> {
+  const rel = await window.mook.profile.pickAvatar()
+  if (!rel) return
+  await window.mook.prefs.set('avatarPath', rel)
+  avatarUrl.value = toImgUrl(rel)
+}
+
+watch(profileOpen, (open: boolean) => {
+  if (!open) profileEditing.value = false
+})
 const isMaximized = ref(false)
 function winMinimize(): void {
   window.mook.window.minimize()
@@ -186,14 +263,12 @@ onMounted(async () => {
   motto.value = (p.motto as string) || ''
   avatarUrl.value = toImgUrl(p.avatarPath as string)
 
-  // 外观自定义：字体立即应用；窗口图标交给主进程设置
+  // 外观自定义：皮肤 + 字体
+  await initSkin()
   applyFont(p.uiFont as string)
-  void applyIcon(p.uiIcon as string)
 
   const shell = await window.mook.window.shellInfo()
   material.value = shell.material
-  // 黑白极简：强调色固定，写到 :root 供 teleport 弹层使用
-  document.documentElement.style.setProperty('--accent', accent.value)
   window.addEventListener('custom-modules-changed', onModulesChanged)
   window.mook.window.onMaximizedChange((v) => (isMaximized.value = v))
 })
@@ -239,7 +314,6 @@ function onRailPointerUp(): void {
         <div
           class="app-root"
           :class="`mat-${material}`"
-          :style="{ '--accent': accent }"
         >
           <!-- 自定义标题栏：左侧品牌标识 + 可拖拽区，右侧自绘最小化/最大化/关闭 -->
           <div class="app-titlebar">
@@ -278,16 +352,9 @@ function onRailPointerUp(): void {
                 title="拖动调整宽度"
                 @pointerdown.prevent="onRailPointerDown"
               ></div>
-              <div class="user" :title="motto">
-                <div class="avatar" :class="{ clickable: avatarUrl }">
-                  <n-image
-                    v-if="avatarUrl"
-                    :src="avatarUrl"
-                    :preview-src="avatarUrl"
-                    preview-enabled
-                    object-fit="cover"
-                    :alt="nickname"
-                  />
+              <div class="user" title="查看资料" @click="profileOpen = !profileOpen">
+                <div class="avatar">
+                  <img v-if="avatarUrl" :src="avatarUrl" :alt="nickname" draggable="false" />
                   <span v-else>{{ nickname.slice(0, 1) }}</span>
                 </div>
                 <div class="user-name">{{ nickname }}</div>
@@ -308,7 +375,6 @@ function onRailPointerUp(): void {
                     :to="item.to"
                     class="rail-item"
                     exact-active-class="active"
-                    :style="{ '--item-accent': item.accent || 'var(--accent)' }"
                   >
                     <ModuleIcon
                       v-if="item.raw"
@@ -341,6 +407,62 @@ function onRailPointerUp(): void {
               <GlobalSearch v-if="showGlobalSearch" />
             </main>
           </div>
+
+          <!-- 头像信息弹层：放在 rail 之外，避免被其 backdrop-filter 层叠上下文裁切 -->
+          <transition name="profile-pop">
+            <div v-if="profileOpen" class="profile-wrap">
+              <div class="profile-backdrop" @click="profileOpen = false"></div>
+              <div class="profile-card">
+                <button
+                  v-if="!profileEditing"
+                  class="profile-edit-icon"
+                  title="编辑资料"
+                  @click="startEditProfile"
+                >
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                  </svg>
+                </button>
+                <div
+                  class="profile-avatar"
+                  :class="{ editable: profileEditing }"
+                  :title="profileEditing ? '点击更换头像' : ''"
+                  @click="profileEditing && pickAvatar()"
+                >
+                  <img v-if="avatarUrl" :src="avatarUrl" :alt="nickname" draggable="false" />
+                  <span v-else>{{ (profileEditing ? draftNickname : nickname).slice(0, 1) }}</span>
+                  <div v-if="profileEditing" class="profile-avatar-mask">更换</div>
+                </div>
+
+                <template v-if="!profileEditing">
+                  <div class="profile-name">{{ nickname }}</div>
+                  <div class="profile-motto">{{ motto || '这个人很懒，还没有写座右铭。' }}</div>
+                </template>
+
+                <template v-else>
+                  <input
+                    v-model="draftNickname"
+                    class="profile-input"
+                    type="text"
+                    maxlength="20"
+                    placeholder="昵称"
+                  />
+                  <textarea
+                    v-model="draftMotto"
+                    class="profile-input profile-textarea"
+                    rows="2"
+                    maxlength="60"
+                    placeholder="座右铭"
+                  ></textarea>
+                  <div class="profile-actions">
+                    <button class="profile-btn ghost" @click="cancelEditProfile">取消</button>
+                    <button class="profile-btn" @click="saveProfile">保存</button>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </transition>
         </div>
       </n-dialog-provider>
     </n-message-provider>
@@ -352,7 +474,7 @@ function onRailPointerUp(): void {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #f3f3f5;
+  background: var(--app-bg);
 }
 
 /* Win11 Mica：窗口本身透明让系统材质透出，卡片用半透明 Acrylic 感 */
@@ -375,8 +497,8 @@ function onRailPointerUp(): void {
   width: 16px;
   height: 16px;
   border-radius: 4px;
-  background: #1f2329;
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
@@ -395,22 +517,22 @@ function onRailPointerUp(): void {
   justify-content: center;
   border: none;
   background: transparent;
-  color: #5b616c;
+  color: var(--tb-btn-text);
   cursor: pointer;
   transition:
     background-color 0.12s,
     color 0.12s;
 }
 .tb-btn:hover {
-  background: rgba(0, 0, 0, 0.07);
-  color: #1f2329;
+  background: var(--tb-btn-hover-bg);
+  color: var(--tb-btn-hover-text);
 }
 .tb-btn:active {
-  background: rgba(0, 0, 0, 0.12);
+  background: var(--tb-btn-hover-bg);
 }
 .tb-btn.tb-close:hover {
   background: #e81123;
-  color: #fff;
+  color: #ffffff;
 }
 .tb-btn.tb-close:active {
   background: #c40f1e;
@@ -430,8 +552,8 @@ function onRailPointerUp(): void {
   position: relative;
   flex-shrink: 0;
   align-self: stretch;
-  background: rgba(252, 252, 253, 0.72);
-  border: 1px solid rgba(17, 17, 17, 0.06);
+  background: var(--rail-bg);
+  border: 1px solid var(--rail-stroke);
   border-radius: 14px;
   backdrop-filter: blur(32px) saturate(1.25);
   display: flex;
@@ -452,7 +574,7 @@ function onRailPointerUp(): void {
 }
 .rail-resize:hover,
 body.rail-resizing .rail-resize {
-  background: rgba(31, 35, 41, 0.12);
+  background: var(--rail-handle);
 }
 
 /* 用户区固定，导航分组在剩余空间内独立滚动；隐藏滚动条 */
@@ -487,7 +609,7 @@ body.rail-resizing {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.4px;
-  color: #9aa0ac;
+  color: var(--rail-text-dim);
   padding: 10px 14px 4px;
   user-select: none;
 }
@@ -507,14 +629,18 @@ body.rail-resizing {
   align-items: center;
   gap: 8px;
   padding: 2px 0 12px;
-  cursor: default;
+  cursor: pointer;
+}
+.user:hover .avatar {
+  box-shadow: 0 0 0 2px var(--rail-handle), 0 2px 10px rgba(0, 0, 0, 0.18);
+  transform: scale(1.05);
 }
 .avatar {
   width: 52px;
   height: 52px;
   border-radius: 50%;
   overflow: hidden;
-  background: linear-gradient(135deg, #dfe4f2, #eef0f5);
+  background: var(--rail-avatar-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -523,15 +649,7 @@ body.rail-resizing {
     box-shadow 0.2s ease,
     transform 0.15s ease;
 }
-.avatar.clickable {
-  cursor: zoom-in;
-}
-.avatar.clickable:hover {
-  box-shadow: 0 0 0 2px rgba(31, 35, 41, 0.32), 0 2px 10px rgba(0, 0, 0, 0.18);
-  transform: scale(1.05);
-}
-.avatar :deep(.n-image),
-.avatar :deep(.n-image img) {
+.avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -539,12 +657,12 @@ body.rail-resizing {
 .avatar span {
   font-size: 22px;
   font-weight: 600;
-  color: #7d8698;
+  color: var(--rail-avatar-fallback);
 }
 .user-name {
   font-size: 13px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--rail-text-strong);
   max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
@@ -553,7 +671,7 @@ body.rail-resizing {
 
 .rail-divider {
   height: 1px;
-  background: #eef0f4;
+  background: var(--rail-divider);
   margin: 8px 6px 6px;
 }
 
@@ -567,7 +685,7 @@ body.rail-resizing {
   border-radius: 10px;
   font-size: 13px;
   line-height: 1;
-  color: #555;
+  color: var(--rail-text);
   text-decoration: none;
 }
 
@@ -588,11 +706,11 @@ body.rail-resizing {
     color 0.12s ease;
 }
 .rail-item:hover {
-  background: color-mix(in srgb, var(--item-accent) 10%, transparent);
+  background: var(--rail-item-hover);
 }
 .rail-item.active {
-  background: color-mix(in srgb, var(--item-accent) 12%, transparent);
-  color: var(--item-accent);
+  background: var(--rail-item-hover);
+  color: var(--rail-text-strong);
   font-weight: 600;
 }
 
@@ -600,9 +718,166 @@ body.rail-resizing {
   flex: 1;
   min-width: 0;
   overflow: auto;
-  background: rgba(255, 255, 255, 0.74);
-  border: 1px solid rgba(17, 17, 17, 0.06);
+  background: var(--content-bg);
+  border: 1px solid var(--fluent-stroke);
   border-radius: 14px;
   backdrop-filter: blur(32px) saturate(1.25);
+}
+
+/* 头像资料弹层 */
+.profile-wrap {
+  position: fixed;
+  top: calc(var(--titlebar-height) + 16px);
+  left: 18px;
+  z-index: 1000;
+}
+.profile-backdrop {
+  position: fixed;
+  inset: calc(var(--titlebar-height) * -1) 0 0 calc(var(--titlebar-height) * -1);
+}
+.profile-card {
+  position: relative;
+  width: 248px;
+  padding: 18px 18px 16px;
+  border-radius: 14px;
+  background: var(--fluent-card);
+  border: 1px solid var(--fluent-stroke);
+  box-shadow: var(--fluent-shadow);
+  backdrop-filter: blur(32px) saturate(1.4);
+  -webkit-backdrop-filter: blur(32px) saturate(1.4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  transform-origin: top left;
+}
+.profile-edit-icon {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+.profile-edit-icon:hover {
+  background: rgba(17, 17, 17, 0.07);
+  color: var(--accent-ink, #1f2329);
+}
+.profile-avatar {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--rail-avatar-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+}
+.profile-avatar.editable {
+  cursor: pointer;
+}
+.profile-avatar-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 12px;
+}
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.profile-avatar span {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--rail-avatar-fallback);
+}
+.profile-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+.profile-motto {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text);
+  word-break: break-word;
+}
+.profile-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-strong, #1f2329);
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(17, 17, 17, 0.16);
+  border-radius: 8px;
+  outline: none;
+  resize: none;
+}
+.profile-input:focus {
+  border-color: var(--accent-ink, #1f2329);
+}
+.profile-textarea {
+  line-height: 1.5;
+}
+.profile-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.profile-btn {
+  flex: 1;
+  padding: 7px 0;
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  background: var(--accent, #1f2329);
+  color: var(--on-accent, #fff);
+  transition: filter 0.15s ease;
+}
+.profile-btn:hover {
+  filter: brightness(1.12);
+}
+.profile-btn.ghost {
+  background: transparent;
+  color: var(--accent-ink, #1f2329);
+  border-color: rgba(17, 17, 17, 0.2);
+}
+.profile-btn.ghost:hover {
+  background: rgba(17, 17, 17, 0.06);
+  filter: none;
+}
+
+/* 像通知一样从左侧滑入，慢速；只做位移，不淡入，避免毛玻璃背景闪烁 */
+.profile-pop-enter-active {
+  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.profile-pop-leave-active {
+  transition: transform 0.25s var(--fluent-ease);
+}
+.profile-pop-enter-from,
+.profile-pop-leave-to {
+  transform: translateX(calc(-100% - 24px));
 }
 </style>

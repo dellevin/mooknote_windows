@@ -593,14 +593,14 @@ function reset(): void {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  background: #1f2329;
+  color: var(--on-accent);
+  background: var(--accent);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
   z-index: 900;
   transition: transform 0.14s ease;
 }
 .fab:hover {
-  background: #000;
+  background: var(--accent-hover);
   transform: translateY(-2px) scale(1.04);
 }
 .fab:active {
@@ -623,9 +623,9 @@ function reset(): void {
     box-shadow 0.15s;
 }
 .local-search:focus-within {
-  background: #fff;
-  border-color: color-mix(in srgb, var(--accent) 45%, #fff);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 8%, transparent);
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--accent-ink) 45%, var(--surface));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-ink) 8%, transparent);
 }
 .ls-icon {
   width: 18px;
@@ -762,7 +762,7 @@ function reset(): void {
 .lr-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .lr-sub {
   font-size: 12px;
@@ -812,7 +812,7 @@ function reset(): void {
   max-width: 94vw;
   max-height: 86vh;
   overflow-y: auto;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 20px 24px;
 }
@@ -895,7 +895,7 @@ function reset(): void {
 .v-title {
   font-size: 13px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
   margin-top: 6px;
   white-space: nowrap;
   overflow: hidden;

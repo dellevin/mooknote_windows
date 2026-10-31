@@ -64,7 +64,7 @@ const ICON_PATHS: Record<'movie' | 'book' | 'game', string> = {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--surface);
   display: flex;
   align-items: center;
   justify-content: center;

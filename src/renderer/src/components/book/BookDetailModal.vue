@@ -201,7 +201,7 @@ const STATUS_TYPE: Record<string, 'info' | 'success' | 'warning' | 'default'> = 
   max-width: 94vw;
   height: 86vh;
   max-height: 86vh;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   overflow: hidden;
   display: flex;
@@ -358,7 +358,7 @@ const STATUS_TYPE: Record<string, 'info' | 'success' | 'warning' | 'default'> = 
 .section-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
   margin: 14px 0 8px;
 }
 .summary {

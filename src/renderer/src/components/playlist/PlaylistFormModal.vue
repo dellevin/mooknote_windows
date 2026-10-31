@@ -108,7 +108,7 @@ async function save(): Promise<void> {
 .editor {
   width: 480px;
   max-width: 92vw;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 20px 24px;
 }

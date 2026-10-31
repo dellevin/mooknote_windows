@@ -57,10 +57,10 @@ function pick(v: string): void {
 }
 .cell:hover {
   background: rgba(0, 0, 0, 0.06);
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .cell.on {
-  background: #1f2329;
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
 }
 </style>

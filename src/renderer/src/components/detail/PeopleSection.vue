@@ -25,6 +25,7 @@ const links = ref<PersonLinkWithPerson[]>([])
 const loading = ref(false)
 const pickerShow = ref(false)
 const saving = ref(false)
+const removingId = ref<string | null>(null)
 const people = ref<Person[]>([])
 const formRef = ref({ role: '', personId: null as string | null, characterName: '' })
 const createShow = ref(false)
@@ -107,17 +108,22 @@ async function confirmAdd(): Promise<void> {
 }
 
 async function remove(l: PersonLinkWithPerson): Promise<void> {
-  const next = links.value
-    .filter((x) => x.id !== l.id)
-    .map((x) => ({
-      id: x.id,
-      workId: x.workId,
-      personId: x.personId,
-      roleType: x.roleType,
-      characterName: x.characterName,
-      sortOrder: x.sortOrder
-    }))
-  await persist(next)
+  removingId.value = l.id
+  try {
+    const next = links.value
+      .filter((x) => x.id !== l.id)
+      .map((x) => ({
+        id: x.id,
+        workId: x.workId,
+        personId: x.personId,
+        roleType: x.roleType,
+        characterName: x.characterName,
+        sortOrder: x.sortOrder
+      }))
+    await persist(next)
+  } finally {
+    removingId.value = null
+  }
 }
 
 async function onPersonCreated(p: Person): Promise<void> {
@@ -131,9 +137,7 @@ async function onPersonCreated(p: Person): Promise<void> {
   <div class="section">
     <div class="section-head">
       <span class="section-title">人物（{{ links.length }}）</span>
-      <NButton size="tiny" type="primary" ghost :loading="saving" @click="openPicker">
-        ＋ 关联人物
-      </NButton>
+      <NButton size="tiny" type="primary" ghost @click="openPicker"> ＋ 关联人物 </NButton>
     </div>
     <NSpin :show="loading">
       <NEmpty v-if="!links.length && !loading" description="还没有关联人物" size="small" />
@@ -151,7 +155,14 @@ async function onPersonCreated(p: Person): Promise<void> {
             </div>
             <NPopconfirm to="body" @positive-click="remove(l)">
               <template #trigger>
-                <NButton size="tiny" quaternary type="error">✕</NButton>
+                <NButton
+                  size="tiny"
+                  quaternary
+                  type="error"
+                  :loading="removingId === l.id"
+                >
+                  ✕
+                </NButton>
               </template>
               移除该人物关联？
             </NPopconfirm>
@@ -206,7 +217,7 @@ async function onPersonCreated(p: Person): Promise<void> {
 .section-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .role-group {
   margin-bottom: 12px;
@@ -256,7 +267,7 @@ async function onPersonCreated(p: Person): Promise<void> {
 .chip-name {
   font-size: 13.5px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .chip-char {
   font-size: 12px;
@@ -265,7 +276,7 @@ async function onPersonCreated(p: Person): Promise<void> {
 .picker {
   width: 460px;
   max-width: 92vw;
-  background: #fff;
+  background: var(--surface);
   border-radius: 14px;
   padding: 20px 24px;
 }

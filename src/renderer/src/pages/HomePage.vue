@@ -86,6 +86,58 @@ const longestStreak = computed(() => {
   return best
 })
 
+// ── 热力图格子悬停：查看当天条目 ──
+interface DayItem {
+  kind: string
+  title: string
+}
+const KIND_LABEL: Record<string, string> = {
+  movie: '影视',
+  book: '书籍',
+  game: '游戏',
+  person: '人物',
+  note: '笔记'
+}
+const dayCache = new Map<string, DayItem[]>()
+const tip = ref<{ x: number; y: number; date: string; items: DayItem[] | null } | null>(null)
+let tipSeq = 0
+
+function fmtDay(date: string): string {
+  const [y, m, d] = date.split('-').map(Number)
+  return `${y} 年 ${m} 月 ${d} 日`
+}
+const tipPos = computed(() => {
+  if (!tip.value) return {}
+  const w = 250
+  const left =
+    tip.value.x + 14 + w > window.innerWidth ? tip.value.x - w - 10 : tip.value.x + 14
+  const top = Math.min(tip.value.y + 14, window.innerHeight - 220)
+  return { left: left + 'px', top: top + 'px', width: w + 'px' }
+})
+
+async function onCellEnter(e: MouseEvent, c: Cell): Promise<void> {
+  if (!c.count) {
+    tip.value = null
+    return
+  }
+  tip.value = { x: e.clientX, y: e.clientY, date: c.date, items: dayCache.get(c.date) ?? null }
+  if (!dayCache.has(c.date)) {
+    const seq = ++tipSeq
+    const items = await window.mook.stats.dayItems(c.date)
+    dayCache.set(c.date, items)
+    if (seq === tipSeq && tip.value?.date === c.date) {
+      tip.value = { ...tip.value, items }
+    }
+  }
+}
+function onCellMove(e: MouseEvent): void {
+  if (tip.value) tip.value = { ...tip.value, x: e.clientX, y: e.clientY }
+}
+function onCellLeave(): void {
+  tipSeq++
+  tip.value = null
+}
+
 function kindRows(key: 'movies' | 'books' | 'games'): StatusCount[] {
   return overview.value?.[key].byStatus ?? []
 }
@@ -141,8 +193,10 @@ onMounted(async () => {
                   v-for="(c, j) in w.cells"
                   :key="j"
                   class="heat-cell"
-                  :class="c ? 'lvl' + c.level : 'blank'"
-                  :title="c ? `${c.date} · ${c.count} 条` : ''"
+                  :class="[c ? 'lvl' + c.level : 'blank', { hoverable: c && c.count > 0 }]"
+                  @mouseenter="c && onCellEnter($event, c)"
+                  @mousemove="onCellMove"
+                  @mouseleave="onCellLeave"
                 ></div>
               </div>
             </div>
@@ -180,6 +234,29 @@ onMounted(async () => {
         </section>
       </div>
     </NSpin>
+
+    <!-- 热力图当天条目浮层（跟随鼠标） -->
+    <Teleport to="body">
+      <div v-if="tip" class="heat-tip" :style="tipPos">
+        <div class="heat-tip-head">
+          <span>{{ fmtDay(tip.date) }}</span>
+          <span class="heat-tip-count">{{ tip.items?.length ?? 0 }} 条</span>
+        </div>
+        <div v-if="tip.items === null" class="heat-tip-loading">加载中…</div>
+        <ul v-else-if="tip.items.length" class="heat-tip-list">
+          <li v-for="(it, i) in tip.items.slice(0, 8)" :key="i">
+            <span class="heat-tip-kind" :class="'k-' + it.kind">{{
+              KIND_LABEL[it.kind] ?? it.kind
+            }}</span>
+            <span class="heat-tip-title">{{ it.title }}</span>
+          </li>
+          <li v-if="tip.items.length > 8" class="heat-tip-more">
+            等 {{ tip.items.length }} 条…
+          </li>
+        </ul>
+        <div v-else class="heat-tip-empty">当天没有记录</div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -198,7 +275,7 @@ onMounted(async () => {
 .hello {
   font-size: 24px;
   font-weight: 700;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .hello-sub {
   font-size: 13px;
@@ -215,12 +292,12 @@ onMounted(async () => {
   white-space: nowrap;
 }
 .head-stat strong {
-  color: #1f2329;
+  color: var(--text-strong);
   font-size: 15px;
 }
 
 .card {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid #d8dee4;
   border-radius: 10px;
   padding: 16px 18px;
@@ -231,7 +308,7 @@ onMounted(async () => {
   justify-content: space-between;
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
   margin-bottom: 14px;
 }
 .muted {
@@ -283,20 +360,26 @@ onMounted(async () => {
 .heat-cell.blank {
   visibility: hidden;
 }
+.heat-cell.hoverable {
+  cursor: pointer;
+  outline: 1px solid rgba(0, 0, 0, 0.15);
+  outline-offset: -1px;
+}
+/* 热力色阶跟随皮肤强调色：空槽浅灰，有记录的格子用 accent 由浅到深 */
 .lvl0 {
-  background: #ebedf0;
+  background: var(--heat-0, #ebedf0);
 }
 .lvl1 {
-  background: #9be9a8;
+  background: color-mix(in srgb, var(--accent) 22%, white);
 }
 .lvl2 {
-  background: #40c463;
+  background: color-mix(in srgb, var(--accent) 46%, white);
 }
 .lvl3 {
-  background: #30a14e;
+  background: color-mix(in srgb, var(--accent) 72%, white);
 }
 .lvl4 {
-  background: #216e39;
+  background: color-mix(in srgb, var(--accent) 100%, white);
 }
 .heat-legend {
   display: flex;
@@ -308,6 +391,83 @@ onMounted(async () => {
   width: 11px;
   aspect-ratio: auto;
   height: 11px;
+}
+
+/* 悬停浮层 teleport 到 body，需用全局样式 */
+.heat-tip {
+  position: fixed;
+  z-index: 3000;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(33, 38, 45, 0.94);
+  color: #e6e8eb;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+  font-size: 12px;
+}
+.heat-tip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.heat-tip-count {
+  font-weight: 400;
+  color: #9aa3ad;
+}
+.heat-tip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.heat-tip-list li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.heat-tip-kind {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #fff;
+}
+.heat-tip-kind.k-movie {
+  background: #3b82f6;
+}
+.heat-tip-kind.k-book {
+  background: #8b5cf6;
+}
+.heat-tip-kind.k-game {
+  background: #f59e0b;
+}
+.heat-tip-kind.k-person {
+  background: #14b8a6;
+}
+.heat-tip-kind.k-note {
+  background: #6b7280;
+}
+.heat-tip-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.heat-tip-more {
+  color: #9aa3ad;
+}
+.heat-tip-empty,
+.heat-tip-loading {
+  color: #9aa3ad;
+  padding: 2px 0;
 }
 
 .cards {
@@ -341,7 +501,7 @@ onMounted(async () => {
 }
 .mini-fill {
   height: 100%;
-  background: #1f2329;
+  background: var(--accent);
   border-radius: 4px;
   transition: width 0.3s;
 }

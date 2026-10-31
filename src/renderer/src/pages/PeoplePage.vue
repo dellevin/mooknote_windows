@@ -131,7 +131,7 @@ function openWork(kind: MediaKind): void {
 }
 .page-title {
   font-size: 18px;
-  color: #1f2329;
+  color: var(--text-strong);
 }
 .tools {
   display: flex;
@@ -153,7 +153,7 @@ function openWork(kind: MediaKind): void {
   border-radius: 12px;
 }
 .person-card:hover {
-  background: #fff;
+  background: var(--surface);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 .load-more {
@@ -186,7 +186,7 @@ function openWork(kind: MediaKind): void {
 .name {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--text-strong);
   margin-bottom: 4px;
 }
 .occ {
