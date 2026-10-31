@@ -11,11 +11,15 @@ import {
   NDatePicker,
   NButton,
   NSpace,
+  NRadioGroup,
+  NRadioButton,
+  NRate,
   useMessage
 } from 'naive-ui'
 import type { BookInput, BookStatus } from '@shared/types'
 import { BOOK_STATUS_LABELS, BOOK_CATEGORY_LABELS } from '@shared/types'
 import { toImgUrl, isoToTs, tsToIso, plain } from '@/utils/image'
+import TagPickField from '@/components/form/TagPickField.vue'
 
 const props = defineProps<{ show: boolean; editId?: string | null }>()
 const emit = defineEmits<{
@@ -34,7 +38,7 @@ interface FormState {
   authors: string[]
   translators: string[]
   alternateTitles: string[]
-  publisher: string
+  publisher: string | null
   genres: string[]
   summary: string
   rating: number | null
@@ -56,7 +60,7 @@ function emptyForm(id: string): FormState {
     authors: [],
     translators: [],
     alternateTitles: [],
-    publisher: '',
+    publisher: null,
     genres: [],
     summary: '',
     rating: null,
@@ -89,13 +93,19 @@ const meta = ref<{
   publishers: string[]
 }>({ authors: [], translators: [], genres: [], publishers: [] })
 
-const opts = (list: string[]) => list.map((v) => ({ label: v, value: v }))
-const authorOptions = computed(() => opts(meta.value.authors))
-const translatorOptions = computed(() => opts(meta.value.translators))
-const genreOptions = computed(() => opts(meta.value.genres))
-const publisherOptions = computed(() => opts(meta.value.publishers))
+const publisherOptions = computed(() =>
+  meta.value.publishers.map((v: string) => ({ label: v, value: v }))
+)
 
 const coverUrl = computed(() => toImgUrl(form.coverPath))
+
+// 星级：NRate 为 5 星半星制，存储为 0–10
+const starValue = computed({
+  get: () => (form.rating == null ? null : form.rating / 2),
+  set: (v: number | null) => {
+    form.rating = v == null ? null : Math.round(v * 2 * 10) / 10
+  }
+})
 
 onMounted(async () => {
   meta.value = await window.mook.book.metadata()
@@ -113,7 +123,7 @@ async function hydrate(): Promise<void> {
         authors: [...b.authors],
         translators: [...b.translators],
         alternateTitles: [...b.alternateTitles],
-        publisher: b.publisher ?? '',
+        publisher: b.publisher,
         genres: [...b.genres],
         summary: b.summary ?? '',
         rating: b.rating,
@@ -160,7 +170,7 @@ async function save(): Promise<void> {
       authors: form.authors,
       translators: form.translators,
       alternateTitles: form.alternateTitles,
-      publisher: form.publisher.trim() || null,
+      publisher: form.publisher?.trim() || null,
       genres: form.genres,
       summary: form.summary.trim() || null,
       rating: form.rating,
@@ -190,7 +200,11 @@ defineExpose({ hydrate })
 </script>
 
 <template>
-  <NModal :show="show" @update:show="(v: boolean) => emit('update:show', v)" :auto-focus="false">
+  <NModal
+    :show="show"
+    @update:show="(v: boolean) => emit('update:show', v)"
+    :auto-focus="false"
+  >
     <NCard
       class="form-card"
       :title="editId ? '编辑书籍' : '添加书籍'"
@@ -201,11 +215,13 @@ defineExpose({ hydrate })
     >
       <div class="form-body">
         <div class="cover-col">
-          <div class="cover-box">
+          <div class="cover-box" title="选择封面" @click="chooseCover">
             <img v-if="coverUrl" :src="coverUrl" />
             <div v-else class="cover-empty">无封面</div>
+            <div class="cover-mask">
+              <NButton size="tiny" secondary :loading="picking">选择封面</NButton>
+            </div>
           </div>
-          <NButton size="small" :loading="picking" block @click="chooseCover">选择封面</NButton>
           <NButton
             v-if="form.coverPath"
             size="small"
@@ -220,43 +236,61 @@ defineExpose({ hydrate })
 
         <div class="fields-col">
           <NForm label-placement="top" size="small">
+            <!-- 基本信息 -->
+            <div class="sec-title">基本信息</div>
             <NFormItem label="书名" required>
               <NInput v-model:value="form.title" placeholder="书名" />
             </NFormItem>
 
+            <NFormItem label="别名">
+              <TagPickField
+                v-model="form.alternateTitles"
+                label="别名"
+                :candidates="[]"
+                placeholder="输入别名后回车添加"
+              />
+            </NFormItem>
+
+            <NFormItem label="状态">
+              <NRadioGroup v-model:value="form.status" type="button" size="small">
+                <NRadioButton v-for="o in statusOptions" :key="o.value" :value="o.value">
+                  {{ o.label }}
+                </NRadioButton>
+              </NRadioGroup>
+            </NFormItem>
+
+            <NFormItem label="类型分类">
+              <NRadioGroup v-model:value="form.category" type="button" size="small">
+                <NRadioButton v-for="o in categoryOptions" :key="o.value" :value="o.value">
+                  {{ o.label }}
+                </NRadioButton>
+              </NRadioGroup>
+            </NFormItem>
+
             <div class="grid-2">
-              <NFormItem label="状态">
-                <NSelect v-model:value="form.status" :options="statusOptions" />
+              <NFormItem label="我的评分">
+                <div class="rate-row">
+                  <NRate v-model:value="starValue" allow-half size="small" :max="5" />
+                  <span class="rate-num">{{ form.rating != null ? form.rating : '—' }}</span>
+                  <NButton
+                    v-if="form.rating != null"
+                    size="tiny"
+                    quaternary
+                    @click="form.rating = null"
+                  >
+                    清除
+                  </NButton>
+                </div>
               </NFormItem>
-              <NFormItem label="分类">
-                <NSelect v-model:value="form.category" :options="categoryOptions" />
+              <NFormItem label="阅读次数">
+                <NInputNumber
+                  v-model:value="form.readCount"
+                  :min="0"
+                  :step="1"
+                  class="full"
+                />
               </NFormItem>
             </div>
-
-            <NFormItem label="作者">
-              <NSelect
-                v-model:value="form.authors"
-                :options="authorOptions"
-                multiple
-                filterable
-                tag
-                clearable
-                class="full"
-                placeholder="输入后回车添加"
-              />
-            </NFormItem>
-            <NFormItem label="译者">
-              <NSelect
-                v-model:value="form.translators"
-                :options="translatorOptions"
-                multiple
-                filterable
-                tag
-                clearable
-                class="full"
-                placeholder="输入后回车添加"
-              />
-            </NFormItem>
 
             <div class="grid-2">
               <NFormItem label="出版社">
@@ -275,50 +309,28 @@ defineExpose({ hydrate })
               </NFormItem>
             </div>
 
-            <NFormItem label="类型">
-              <NSelect
-                v-model:value="form.genres"
-                :options="genreOptions"
-                multiple
-                filterable
-                tag
-                clearable
-                class="full"
-                placeholder="如 文学 / 科幻"
+            <!-- 创作信息 -->
+            <div class="sec-title">创作信息</div>
+            <NFormItem label="作者">
+              <TagPickField v-model="form.authors" label="作者" :candidates="meta.authors" />
+            </NFormItem>
+            <NFormItem label="译者">
+              <TagPickField
+                v-model="form.translators"
+                label="译者"
+                :candidates="meta.translators"
               />
             </NFormItem>
-            <NFormItem label="别名">
-              <NSelect
-                v-model:value="form.alternateTitles"
-                :options="[]"
-                multiple
-                filterable
-                tag
-                clearable
-                class="full"
-                placeholder="输入后回车添加"
-              />
-            </NFormItem>
+            <TagPickField
+              v-model="form.genres"
+              label="类型"
+              cloud
+              :candidates="meta.genres"
+            />
 
+            <!-- 阅读记录 -->
+            <div class="sec-title">阅读记录</div>
             <div class="grid-3">
-              <NFormItem label="评分（0-10）">
-                <NInputNumber
-                  v-model:value="form.rating"
-                  :min="0"
-                  :max="10"
-                  :step="0.5"
-                  clearable
-                  class="full"
-                />
-              </NFormItem>
-              <NFormItem label="阅读次数">
-                <NInputNumber
-                  v-model:value="form.readCount"
-                  :min="0"
-                  :step="1"
-                  class="full"
-                />
-              </NFormItem>
               <NFormItem label="出版日期">
                 <NDatePicker
                   v-model:value="form.publishTs"
@@ -327,8 +339,6 @@ defineExpose({ hydrate })
                   class="full"
                 />
               </NFormItem>
-            </div>
-            <div class="grid-2">
               <NFormItem label="开始日期">
                 <NDatePicker v-model:value="form.startTs" type="date" clearable class="full" />
               </NFormItem>
@@ -337,11 +347,13 @@ defineExpose({ hydrate })
               </NFormItem>
             </div>
 
-            <NFormItem label="简介">
+            <!-- 简介 -->
+            <div class="sec-title">简介</div>
+            <NFormItem label="书籍简介">
               <NInput
                 v-model:value="form.summary"
                 type="textarea"
-                :autosize="{ minRows: 3, maxRows: 6 }"
+                :autosize="{ minRows: 4, maxRows: 8 }"
                 placeholder="书籍简介"
               />
             </NFormItem>
@@ -361,26 +373,31 @@ defineExpose({ hydrate })
 
 <style scoped>
 .form-card {
-  width: 860px;
-  max-width: 94vw;
+  width: 920px;
+  max-width: 95vw;
+}
+.form-card :deep(.n-card__content) {
+  padding-top: 8px;
 }
 .form-body {
   display: flex;
-  gap: 20px;
-  max-height: 72vh;
+  gap: 22px;
+  max-height: 74vh;
 }
 .cover-col {
-  flex: 0 0 150px;
+  flex: 0 0 170px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 .cover-box {
-  width: 150px;
-  aspect-ratio: 3 / 4;
-  border-radius: 8px;
+  position: relative;
+  width: 170px;
+  aspect-ratio: 2 / 3;
+  border-radius: 10px;
   overflow: hidden;
   background: #eef0f5;
+  cursor: pointer;
 }
 .cover-box img {
   width: 100%;
@@ -396,11 +413,35 @@ defineExpose({ hydrate })
   color: #a0a6b2;
   font-size: 13px;
 }
+.cover-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.32);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.cover-box:hover .cover-mask {
+  opacity: 1;
+}
 .fields-col {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 6px;
+}
+.sec-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-strong);
+  margin: 14px 0 6px;
+  padding-left: 8px;
+  border-left: 3px solid var(--accent);
+}
+.sec-title:first-child {
+  margin-top: 2px;
 }
 .grid-2 {
   display: grid;
@@ -414,5 +455,16 @@ defineExpose({ hydrate })
 }
 .full {
   width: 100%;
+}
+.rate-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rate-num {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+  min-width: 26px;
 }
 </style>

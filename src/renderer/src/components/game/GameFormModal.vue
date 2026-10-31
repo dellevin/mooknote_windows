@@ -7,15 +7,18 @@ import {
   NFormItem,
   NInput,
   NInputNumber,
-  NSelect,
   NDatePicker,
   NButton,
   NSpace,
+  NRadioGroup,
+  NRadioButton,
+  NRate,
   useMessage
 } from 'naive-ui'
 import type { GameInput, GameStatus } from '@shared/types'
 import { GAME_STATUS_LABELS, GAME_CATEGORY_LABELS } from '@shared/types'
 import { toImgUrl, isoToTs, tsToIso, plain } from '@/utils/image'
+import TagPickField from '@/components/form/TagPickField.vue'
 
 const props = defineProps<{ show: boolean; editId?: string | null }>()
 const emit = defineEmits<{
@@ -89,12 +92,16 @@ const meta = ref<{ platforms: string[]; genres: string[]; developer: string[] }>
   genres: [],
   developer: []
 })
-const opts = (list: string[]) => list.map((v) => ({ label: v, value: v }))
-const platformOptions = computed(() => opts(meta.value.platforms))
-const genreOptions = computed(() => opts(meta.value.genres))
-const devOptions = computed(() => opts(meta.value.developer))
 
 const coverUrl = computed(() => toImgUrl(form.coverPath))
+
+// 星级：NRate 为 5 星半星制，存储为 0–10
+const starValue = computed({
+  get: () => (form.rating == null ? null : form.rating / 2),
+  set: (v: number | null) => {
+    form.rating = v == null ? null : Math.round(v * 2 * 10) / 10
+  }
+})
 
 onMounted(async () => {
   meta.value = await window.mook.game.metadata()
@@ -191,7 +198,11 @@ defineExpose({ hydrate })
 </script>
 
 <template>
-  <NModal :show="show" @update:show="(v: boolean) => emit('update:show', v)" :auto-focus="false">
+  <NModal
+    :show="show"
+    @update:show="(v: boolean) => emit('update:show', v)"
+    :auto-focus="false"
+  >
     <NCard
       class="form-card"
       :title="editId ? '编辑游戏' : '添加游戏'"
@@ -202,11 +213,13 @@ defineExpose({ hydrate })
     >
       <div class="form-body">
         <div class="cover-col">
-          <div class="cover-box">
+          <div class="cover-box" title="选择封面" @click="chooseCover">
             <img v-if="coverUrl" :src="coverUrl" />
             <div v-else class="cover-empty">无封面</div>
+            <div class="cover-mask">
+              <NButton size="tiny" secondary :loading="picking">选择封面</NButton>
+            </div>
           </div>
-          <NButton size="small" :loading="picking" block @click="chooseCover">选择封面</NButton>
           <NButton
             v-if="form.coverPath"
             size="small"
@@ -221,27 +234,83 @@ defineExpose({ hydrate })
 
         <div class="fields-col">
           <NForm label-placement="top" size="small">
+            <!-- 基本信息 -->
+            <div class="sec-title">基本信息</div>
             <NFormItem label="游戏名称" required>
               <NInput v-model:value="form.title" placeholder="游戏名称" />
             </NFormItem>
 
-            <div class="grid-2">
-              <NFormItem label="状态">
-                <NSelect v-model:value="form.status" :options="statusOptions" />
-              </NFormItem>
-              <NFormItem label="介质">
-                <NSelect v-model:value="form.category" :options="categoryOptions" />
-              </NFormItem>
-            </div>
+            <NFormItem label="状态">
+              <NRadioGroup v-model:value="form.status" type="button" size="small">
+                <NRadioButton v-for="o in statusOptions" :key="o.value" :value="o.value">
+                  {{ o.label }}
+                </NRadioButton>
+              </NRadioGroup>
+            </NFormItem>
 
+            <NFormItem label="介质">
+              <NRadioGroup v-model:value="form.category" type="button" size="small">
+                <NRadioButton v-for="o in categoryOptions" :key="o.value" :value="o.value">
+                  {{ o.label }}
+                </NRadioButton>
+              </NRadioGroup>
+            </NFormItem>
+
+            <NFormItem label="我的评分">
+              <div class="rate-row">
+                <NRate v-model:value="starValue" allow-half size="small" :max="5" />
+                <span class="rate-num">{{ form.rating != null ? form.rating : '—' }}</span>
+                <NButton
+                  v-if="form.rating != null"
+                  size="tiny"
+                  quaternary
+                  @click="form.rating = null"
+                >
+                  清除
+                </NButton>
+              </div>
+            </NFormItem>
+
+            <!-- 创作信息 -->
+            <div class="sec-title">创作信息</div>
+            <NFormItem label="开发者">
+              <TagPickField
+                v-model="form.developer"
+                label="开发者"
+                :candidates="meta.developer"
+              />
+            </NFormItem>
+            <NFormItem label="平台">
+              <TagPickField
+                v-model="form.platforms"
+                label="平台"
+                :candidates="meta.platforms"
+                placeholder="如 PC / Switch / PS5"
+              />
+            </NFormItem>
+            <TagPickField
+              v-model="form.genres"
+              label="类型"
+              cloud
+              :candidates="meta.genres"
+            />
+            <NFormItem label="版本">
+              <TagPickField
+                v-model="form.versions"
+                label="版本"
+                :candidates="[]"
+                placeholder="如 标准版 / 年度版"
+              />
+            </NFormItem>
+
+            <!-- 游玩记录 -->
+            <div class="sec-title">游玩记录</div>
             <div class="grid-3">
-              <NFormItem label="评分（0-10）">
+              <NFormItem label="游玩次数">
                 <NInputNumber
-                  v-model:value="form.rating"
+                  v-model:value="form.playCount"
                   :min="0"
-                  :max="10"
-                  :step="0.5"
-                  clearable
+                  :step="1"
                   class="full"
                 />
               </NFormItem>
@@ -263,65 +332,7 @@ defineExpose({ hydrate })
                 />
               </NFormItem>
             </div>
-
-            <NFormItem label="平台">
-              <NSelect
-                v-model:value="form.platforms"
-                :options="platformOptions"
-                multiple
-                filterable
-                tag
-                clearable
-                class="full"
-                placeholder="如 PC / Switch / PS5"
-              />
-            </NFormItem>
-            <NFormItem label="开发者">
-              <NSelect
-                v-model:value="form.developer"
-                :options="devOptions"
-                multiple
-                filterable
-                tag
-                clearable
-                class="full"
-                placeholder="输入后回车添加"
-              />
-            </NFormItem>
-            <NFormItem label="类型">
-              <NSelect
-                v-model:value="form.genres"
-                :options="genreOptions"
-                multiple
-                filterable
-                tag
-                clearable
-                class="full"
-                placeholder="如 RPG / 动作"
-              />
-            </NFormItem>
-            <NFormItem label="版本">
-              <NSelect
-                v-model:value="form.versions"
-                :options="[]"
-                multiple
-                filterable
-                tag
-                clearable
-                class="full"
-                placeholder="如 标准版 / 年度版"
-              />
-            </NFormItem>
-
             <div class="grid-3">
-              <NFormItem label="游玩次数">
-                <NInputNumber
-                  v-model:value="form.playCount"
-                  :min="0"
-                  :step="1"
-                  class="full"
-                />
-              </NFormItem>
               <NFormItem label="发售日期">
                 <NDatePicker
                   v-model:value="form.releaseTs"
@@ -338,31 +349,26 @@ defineExpose({ hydrate })
                   class="full"
                 />
               </NFormItem>
-            </div>
-
-            <div class="grid-2">
-              <NFormItem label="购买平台">
-                <NSelect
-                  v-model:value="form.purchasePlatforms"
-                  :options="[]"
-                  multiple
-                  filterable
-                  tag
-                  clearable
-                  class="full"
-                  placeholder="Steam / Epic 等"
-                />
-              </NFormItem>
               <NFormItem label="购买价格">
                 <NInput v-model:value="form.purchasePrice" placeholder="如 198" />
               </NFormItem>
             </div>
+            <NFormItem label="购买平台">
+              <TagPickField
+                v-model="form.purchasePlatforms"
+                label="购买平台"
+                :candidates="[]"
+                placeholder="Steam / Epic 等"
+              />
+            </NFormItem>
 
-            <NFormItem label="简介">
+            <!-- 简介 -->
+            <div class="sec-title">简介</div>
+            <NFormItem label="游戏简介">
               <NInput
                 v-model:value="form.summary"
                 type="textarea"
-                :autosize="{ minRows: 3, maxRows: 6 }"
+                :autosize="{ minRows: 4, maxRows: 8 }"
                 placeholder="游戏简介"
               />
             </NFormItem>
@@ -382,26 +388,31 @@ defineExpose({ hydrate })
 
 <style scoped>
 .form-card {
-  width: 860px;
-  max-width: 94vw;
+  width: 920px;
+  max-width: 95vw;
+}
+.form-card :deep(.n-card__content) {
+  padding-top: 8px;
 }
 .form-body {
   display: flex;
-  gap: 20px;
-  max-height: 72vh;
+  gap: 22px;
+  max-height: 74vh;
 }
 .cover-col {
-  flex: 0 0 150px;
+  flex: 0 0 170px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 .cover-box {
-  width: 150px;
-  aspect-ratio: 3 / 4;
-  border-radius: 8px;
+  position: relative;
+  width: 170px;
+  aspect-ratio: 2 / 3;
+  border-radius: 10px;
   overflow: hidden;
   background: #eef0f5;
+  cursor: pointer;
 }
 .cover-box img {
   width: 100%;
@@ -417,11 +428,35 @@ defineExpose({ hydrate })
   color: #a0a6b2;
   font-size: 13px;
 }
+.cover-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.32);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.cover-box:hover .cover-mask {
+  opacity: 1;
+}
 .fields-col {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 6px;
+}
+.sec-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-strong);
+  margin: 14px 0 6px;
+  padding-left: 8px;
+  border-left: 3px solid var(--accent);
+}
+.sec-title:first-child {
+  margin-top: 2px;
 }
 .grid-2 {
   display: grid;
@@ -435,5 +470,16 @@ defineExpose({ hydrate })
 }
 .full {
   width: 100%;
+}
+.rate-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rate-num {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+  min-width: 26px;
 }
 </style>
