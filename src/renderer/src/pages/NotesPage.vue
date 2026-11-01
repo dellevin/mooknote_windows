@@ -392,7 +392,26 @@ function cardTitle(n: Note): string {
               <NButton size="small" type="primary" class="new-btn" @click="openCreate">
                 ＋ 写笔记
               </NButton>
-              <NButton size="small" quaternary @click="binShow = true">回收站</NButton>
+              <button
+                type="button"
+                class="icon-btn"
+                title="刷新"
+                :disabled="loading"
+                @click="load()"
+              >
+                <svg class="ic" :class="{ spinning: loading }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                  <path d="M21 3v6h-6" />
+                </svg>
+              </button>
+              <button type="button" class="icon-btn" title="回收站" @click="binShow = true">
+                <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 6h18" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <line x1="10" x2="10" y1="11" y2="17" />
+                  <line x1="14" x2="14" y1="11" y2="17" />
+                </svg>
+              </button>
             </div>
           </div>
           <div class="rail-search">
@@ -634,6 +653,45 @@ function cardTitle(n: Note): string {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--surface);
+  color: #5b616c;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(17, 17, 17, 0.05);
+  transition: all 0.14s ease;
+}
+.icon-btn:hover {
+  color: var(--text-strong);
+  border-color: rgba(17, 17, 17, 0.12);
+  box-shadow: 0 2px 8px rgba(17, 17, 17, 0.1);
+}
+.icon-btn:active {
+  background: #f0f1f4;
+}
+.icon-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.icon-btn .ic {
+  width: 16px;
+  height: 16px;
+}
+.icon-btn .spinning {
+  animation: ic-spin 0.8s linear infinite;
+}
+@keyframes ic-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .rail-search {
   display: flex;

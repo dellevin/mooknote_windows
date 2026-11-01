@@ -1,4 +1,15 @@
-import { app, shell, BrowserWindow, protocol, net, ipcMain, dialog } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  protocol,
+  net,
+  ipcMain,
+  dialog,
+  Tray,
+  Menu,
+  nativeImage
+} from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -55,7 +66,57 @@ function resolveImagePath(raw: string): string | null {
   return fs.existsSync(p) ? p : null
 }
 
-function createWindow(): void {
+// 关闭窗口行为（prefs 键 closeAction）：
+// ask   每次询问「最小化到托盘 / 退出程序」（默认）
+// tray  直接最小化到系统托盘
+// quit  直接退出程序
+type CloseAction = 'ask' | 'tray' | 'quit'
+
+// 托盘菜单/真正退出时置 true，放行 close
+let isQuitting = false
+let tray: Tray | null = null
+// 关窗询问：主进程发起，渲染层弹自定义对话框后回传决定
+let closeResolve: ((r: { quit: boolean; remember: boolean }) => void) | null = null
+let closeAsking = false
+
+function focusWindow(win: BrowserWindow): void {
+  if (win.isMinimized()) win.restore()
+  if (!win.isVisible()) win.show()
+  win.focus()
+}
+
+function createTray(win: BrowserWindow): void {
+  // 开发态用源码/构建目录图标；打包后优先 resources 目录，最后回退 exe 内嵌图标
+  const candidates = [
+    path.join(__dirname, '../../src/assets/icon/app_icon.png'),
+    path.join(__dirname, '../../build/icon.png'),
+    path.join(process.resourcesPath, 'icon.png')
+  ]
+  const iconPath = candidates.find((p) => fs.existsSync(p))
+  let image = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty()
+  if (!image.isEmpty()) image = image.resize({ width: 16, height: 16 })
+
+  tray = new Tray(image)
+  tray.setToolTip('MookNote')
+  const menu = Menu.buildFromTemplate([
+    {
+      label: '显示主界面',
+      click: () => focusWindow(win)
+    },
+    { type: 'separator' },
+    {
+      label: '退出',
+      click: () => {
+        isQuitting = true
+        app.quit()
+      }
+    }
+  ])
+  tray.setContextMenu(menu)
+  tray.on('click', () => focusWindow(win))
+}
+
+function createWindow(): BrowserWindow {
   // 窗口始终不透明浅色。Win11 Mica 依赖 DWM 合成，无边框窗口最大化/还原时会
   // 间歇性回退成纯黑且无法可靠恢复，故不启用任何透明材质。
   const win = new BrowserWindow({
@@ -81,6 +142,43 @@ function createWindow(): void {
 
   win.on('ready-to-show', () => win.show())
 
+  // 关闭按钮：按设置最小化到托盘 / 退出 / 每次询问（询问用渲染层自定义弹窗）
+  win.on('close', (e) => {
+    if (isQuitting) return
+    e.preventDefault()
+    const action = prefs.get<CloseAction>('closeAction', 'ask')
+    if (action === 'tray') {
+      win.hide()
+      return
+    }
+    if (action === 'quit') {
+      isQuitting = true
+      app.quit()
+      return
+    }
+    // 询问弹窗已打开或页面已销毁：忽略重复触发 / 退回最小化
+    if (closeAsking) return
+    if (win.webContents.isDestroyed()) {
+      win.hide()
+      return
+    }
+    closeAsking = true
+    win.webContents.send('win:close-query')
+    void new Promise<{ quit: boolean; remember: boolean }>((resolve) => {
+      closeResolve = resolve
+    }).then(({ quit, remember }) => {
+      closeAsking = false
+      closeResolve = null
+      if (remember) prefs.set('closeAction', quit ? 'quit' : 'tray')
+      if (quit) {
+        isQuitting = true
+        app.quit()
+      } else {
+        win.hide()
+      }
+    })
+  })
+
   // 通知渲染层最大化状态，用于切换还原图标
   const pushMax = (): void => win.webContents.send('win:max-changed', win.isMaximized())
   win.on('maximize', pushMax)
@@ -103,7 +201,19 @@ function createWindow(): void {
   } else {
     win.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
+
+  return win
 }
+
+// 单实例：第二次启动时不新开窗口，唤起已有窗口
+const gotSingleLock = app.requestSingleInstanceLock()
+if (!gotSingleLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win) focusWindow(win)
+  })
 
 app.whenReady().then(() => {
   initPaths()
@@ -121,6 +231,17 @@ app.whenReady().then(() => {
   registerBackupIpc()
   registerTagIpc()
   registerIncSyncIpc()
+
+  // 渲染层关窗询问弹窗的决定回传
+  ipcMain.on('win:close-decision', (_e, r: { quit?: unknown; remember?: unknown }) => {
+    if (!closeResolve) return
+    closeResolve({ quit: r?.quit === true, remember: r?.remember === true })
+  })
+  ipcMain.on('win:close-cancel', () => {
+    if (!closeResolve) return
+    closeResolve = null
+    closeAsking = false
+  })
 
   // 图片预览「另存为」：把 mookimg 对应的本地文件复制到用户选择的目录
   ipcMain.handle('image:save-as', async (_e, src: string, suggested?: string) => {
@@ -172,13 +293,24 @@ app.whenReady().then(() => {
     }
   })
 
-  createWindow()
+  const mainWin = createWindow()
+  createTray(mainWin)
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win) focusWindow(win)
+    else createWindow()
   })
 })
 
+// 任何主动退出路径（托盘菜单、系统关机/注销、Cmd+Q）都放行窗口关闭
+app.on('before-quit', () => {
+  isQuitting = true
+})
+
+// 最小化到托盘时窗口只是 hide，不会触发 window-all-closed；
+// 真正退出（托盘菜单/退出程序）时 isQuitting=true，close 放行后正常结束
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
+} // 单实例锁分支

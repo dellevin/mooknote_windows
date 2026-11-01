@@ -503,6 +503,13 @@ const api = {
       const listener = (_e: unknown, v: boolean): void => cb(v)
       ipcRenderer.on('win:max-changed', listener)
     },
+    onCloseQuery: (cb: () => void): void => {
+      ipcRenderer.on('win:close-query', () => cb())
+    },
+    closeDecision: (quit: boolean, remember: boolean): void => {
+      ipcRenderer.send('win:close-decision', { quit, remember })
+    },
+    closeCancel: (): void => ipcRenderer.send('win:close-cancel'),
     toggleDevTools: (): void => ipcRenderer.send('win:toggle-devtools'),
     setIcon: (src: string | null): Promise<boolean> =>
       ipcRenderer.invoke('win:set-icon', src),

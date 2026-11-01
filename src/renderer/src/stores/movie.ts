@@ -16,6 +16,7 @@ export const useMovieStore = defineStore('movie', () => {
   const loadingMore = ref(false)
   const hasMore = ref(false)
   const status = ref<StatusFilter>('')
+  const category = ref('')
   const keyword = ref('')
   const sortMode = ref(initialSort())
   const counts = ref<Record<string, number>>({})
@@ -23,6 +24,7 @@ export const useMovieStore = defineStore('movie', () => {
   function query(limit: number, offset: number) {
     return window.mook.movie.list({
       status: status.value || undefined,
+      category: category.value || undefined,
       keyword: keyword.value.trim() || undefined,
       sortMode: sortMode.value,
       limit,
@@ -62,6 +64,11 @@ export const useMovieStore = defineStore('movie', () => {
     void refresh()
   }
 
+  function setCategory(c: string): void {
+    category.value = c
+    void refresh()
+  }
+
   function setSort(m: number): void {
     sortMode.value = m
     localStorage.setItem(SORT_KEY, String(m))
@@ -79,6 +86,7 @@ export const useMovieStore = defineStore('movie', () => {
     loadingMore,
     hasMore,
     status,
+    category,
     keyword,
     sortMode,
     counts,
@@ -86,6 +94,7 @@ export const useMovieStore = defineStore('movie', () => {
     loadMore,
     refreshCounts,
     setStatus,
+    setCategory,
     setSort,
     search
   }

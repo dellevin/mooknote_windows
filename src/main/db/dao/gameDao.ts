@@ -199,14 +199,20 @@ class GameDao {
     developer: string[]
   } {
     const games = this.list()
-    const uniqList = (pick: (g: Game) => string[]): string[] => {
-      const set = new Set<string>()
+    // 合并 tags 表中未隐藏的类型标签，使 0 引用的标签也能在编辑时被选到
+    const tagGenres = (
+      this.db()
+        .prepare('SELECT name FROM tags WHERE type = ? AND is_hidden = 0')
+        .all('game_genre') as { name: string }[]
+    ).map((r) => r.name)
+    const uniqList = (pick: (g: Game) => string[], extras: string[] = []): string[] => {
+      const set = new Set<string>(extras)
       for (const g of games) pick(g).forEach((v) => set.add(v))
       return [...set].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
     }
     return {
       platforms: uniqList((g) => g.platforms),
-      genres: uniqList((g) => g.genres),
+      genres: uniqList((g) => g.genres, tagGenres),
       developer: uniqList((g) => g.developer)
     }
   }

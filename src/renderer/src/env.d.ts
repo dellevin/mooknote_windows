@@ -65,6 +65,8 @@ interface MediaQuery {
   category?: string
   keyword?: string
   sortMode?: number
+  limit?: number
+  offset?: number
   includeDeleted?: boolean
 }
 
@@ -392,6 +394,9 @@ interface MookApi {
     toggleMaximize: () => void
     close: () => void
     onMaximizedChange: (cb: (maximized: boolean) => void) => void
+    onCloseQuery: (cb: () => void) => void
+    closeDecision: (quit: boolean, remember: boolean) => void
+    closeCancel: () => void
     toggleDevTools: () => void
     setIcon: (src: string | null) => Promise<boolean>
     shellInfo: () => Promise<{

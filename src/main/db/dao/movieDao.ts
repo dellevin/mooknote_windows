@@ -209,8 +209,17 @@ class MovieDao {
   // 元数据去重（标签输入提示用）
   allMetadata(): { directors: string[]; writers: string[]; actors: string[]; genres: string[] } {
     const movies = this.list()
-    const uniq = (key: keyof Pick<Movie, 'directors' | 'writers' | 'actors' | 'genres'>) => {
-      const set = new Set<string>()
+    // 合并 tags 表中未隐藏的类型标签，使 0 引用的标签也能在编辑时被选到
+    const tagGenres = (
+      this.db()
+        .prepare('SELECT name FROM tags WHERE type = ? AND is_hidden = 0')
+        .all('movie_genre') as { name: string }[]
+    ).map((r) => r.name)
+    const uniq = (
+      key: keyof Pick<Movie, 'directors' | 'writers' | 'actors' | 'genres'>,
+      extras: string[] = []
+    ) => {
+      const set = new Set<string>(extras)
       for (const m of movies) m[key].forEach((v) => set.add(v))
       return [...set].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
     }
@@ -218,7 +227,7 @@ class MovieDao {
       directors: uniq('directors'),
       writers: uniq('writers'),
       actors: uniq('actors'),
-      genres: uniq('genres')
+      genres: uniq('genres', tagGenres)
     }
   }
 }

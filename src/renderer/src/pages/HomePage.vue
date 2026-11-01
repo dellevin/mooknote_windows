@@ -5,18 +5,61 @@ import type {
   StatsOverview,
   StatusCount,
   HomeStats,
-  HeatDay
+  HeatDay,
+  Movie,
+  Book,
+  Game
 } from '@shared/types'
 import {
   MOVIE_STATUS_LABELS,
   BOOK_STATUS_LABELS,
   GAME_STATUS_LABELS
 } from '@shared/types'
+import { toImgUrl } from '@/utils/image'
+import MovieDetailModal from '@/components/MovieDetailModal.vue'
+import BookDetailModal from '@/components/book/BookDetailModal.vue'
+import GameDetailModal from '@/components/game/GameDetailModal.vue'
 
 const overview = ref<StatsOverview | null>(null)
 const home = ref<HomeStats | null>(null)
 const nickname = ref('MookNote')
 const loading = ref(true)
+
+// ── 封面瓦片（进行中 / 最近添加共用） ──
+type TileKind = 'movie' | 'book' | 'game'
+interface Tile {
+  id: string
+  title: string
+  cover: string | null
+  kind: TileKind
+  createdAt: string
+}
+const TILE_KIND_LABEL: Record<TileKind, string> = {
+  movie: '影视',
+  book: '书籍',
+  game: '游戏'
+}
+
+const inProgress = ref<Tile[]>([])
+const recent = ref<Tile[]>([])
+
+// 封面行内滚轮 → 横向滚动（仅在内容溢出可横滚时拦截，避免挡住页面纵向滚动）
+function onShelfWheel(e: WheelEvent): void {
+  const el = e.currentTarget as HTMLElement
+  if (el.scrollWidth <= el.clientWidth || e.deltaY === 0) return
+  el.scrollLeft += e.deltaY
+  e.preventDefault()
+}
+
+// 三个详情弹窗
+const detailId = ref<string | null>(null)
+const detailKind = ref<TileKind | null>(null)
+const detailShow = ref(false)
+function openTile(t: Tile): void {
+  detailKind.value = t.kind
+  detailId.value = t.id
+  detailShow.value = true
+}
 
 const KINDS: {
   key: 'movies' | 'books' | 'games'
@@ -146,6 +189,37 @@ function kindPct(key: 'movies' | 'books' | 'games', count: number): number {
   return total > 0 ? (count / total) * 100 : 0
 }
 
+const RECENT_PER_KIND = 6
+
+function toMovieTile(m: Movie): Tile {
+  return { id: m.id, title: m.title, cover: m.posterPath, kind: 'movie', createdAt: m.createdAt }
+}
+function toBookTile(b: Book): Tile {
+  return { id: b.id, title: b.title, cover: b.coverPath, kind: 'book', createdAt: b.createdAt }
+}
+function toGameTile(g: Game): Tile {
+  return { id: g.id, title: g.title, cover: g.coverPath, kind: 'game', createdAt: g.createdAt }
+}
+
+async function loadShelves(): Promise<void> {
+  const [watching, reading, playing, movies, books, games] = await Promise.all([
+    window.mook.movie.list({ status: 'watching', sortMode: 0, limit: RECENT_PER_KIND }),
+    window.mook.book.list({ status: 'reading', sortMode: 0, limit: RECENT_PER_KIND }),
+    window.mook.game.list({ status: 'playing', sortMode: 0, limit: RECENT_PER_KIND }),
+    window.mook.movie.list({ sortMode: 1, limit: RECENT_PER_KIND }),
+    window.mook.book.list({ sortMode: 1, limit: RECENT_PER_KIND }),
+    window.mook.game.list({ sortMode: 1, limit: RECENT_PER_KIND })
+  ])
+  inProgress.value = [
+    ...watching.map(toMovieTile),
+    ...reading.map(toBookTile),
+    ...playing.map(toGameTile)
+  ]
+  recent.value = [...movies.map(toMovieTile), ...books.map(toBookTile), ...games.map(toGameTile)]
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+    .slice(0, 12)
+}
+
 onMounted(async () => {
   try {
     const [ov, hm, prefs] = await Promise.all([
@@ -156,6 +230,7 @@ onMounted(async () => {
     overview.value = ov
     home.value = hm
     nickname.value = (prefs.nickname as string) || 'MookNote'
+    void loadShelves()
   } finally {
     loading.value = false
   }
@@ -213,6 +288,56 @@ onMounted(async () => {
         </div>
       </section>
 
+      <div v-if="inProgress.length || recent.length" class="shelf-row">
+        <section v-if="inProgress.length" class="card shelf-card">
+          <div class="card-title">
+            <span>进行中</span>
+            <span class="muted">继续上次的记录</span>
+          </div>
+          <div class="shelf" @wheel="onShelfWheel">
+            <button
+              v-for="t in inProgress"
+              :key="t.kind + t.id"
+              type="button"
+              class="tile"
+              :title="t.title"
+              @click="openTile(t)"
+            >
+              <img v-if="t.cover" :src="toImgUrl(t.cover)" :alt="t.title" class="tile-img" />
+              <div v-else class="tile-img tile-empty">
+                <span>{{ t.title.slice(0, 1) }}</span>
+              </div>
+              <span class="tile-kind" :class="'tk-' + t.kind">{{ TILE_KIND_LABEL[t.kind] }}</span>
+              <span class="tile-name">{{ t.title }}</span>
+            </button>
+          </div>
+        </section>
+
+        <section v-if="recent.length" class="card shelf-card">
+          <div class="card-title">
+            <span>最近添加</span>
+            <span class="muted">最新录入的 {{ recent.length }} 条</span>
+          </div>
+          <div class="shelf" @wheel="onShelfWheel">
+            <button
+              v-for="t in recent"
+              :key="t.kind + t.id"
+              type="button"
+              class="tile"
+              :title="t.title"
+              @click="openTile(t)"
+            >
+              <img v-if="t.cover" :src="toImgUrl(t.cover)" :alt="t.title" class="tile-img" />
+              <div v-else class="tile-img tile-empty">
+                <span>{{ t.title.slice(0, 1) }}</span>
+              </div>
+              <span class="tile-kind" :class="'tk-' + t.kind">{{ TILE_KIND_LABEL[t.kind] }}</span>
+              <span class="tile-name">{{ t.title }}</span>
+            </button>
+          </div>
+        </section>
+      </div>
+
       <div class="cards">
         <section v-for="kind in KINDS" :key="kind.key" class="card">
           <div class="card-title">
@@ -257,6 +382,10 @@ onMounted(async () => {
         <div v-else class="heat-tip-empty">当天没有记录</div>
       </div>
     </Teleport>
+
+    <MovieDetailModal v-if="detailKind === 'movie'" v-model:show="detailShow" :id="detailId" />
+    <BookDetailModal v-if="detailKind === 'book'" v-model:show="detailShow" :id="detailId" />
+    <GameDetailModal v-if="detailKind === 'game'" v-model:show="detailShow" :id="detailId" />
   </div>
 </template>
 
@@ -294,6 +423,78 @@ onMounted(async () => {
 .head-stat strong {
   color: var(--text-strong);
   font-size: 15px;
+}
+
+/* 封面横排（进行中 / 最近添加），两块一行各占一半 */
+.shelf-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.shelf-card {
+  min-width: 0;
+}
+.shelf {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 104px;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none; /* Firefox */
+}
+.shelf::-webkit-scrollbar {
+  display: none; /* Chrome / Electron */
+}
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.tile-img {
+  width: 104px;
+  height: 146px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: #f0f1f4;
+}
+.tile-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #b6bcc6;
+  font-size: 30px;
+}
+.tile-kind {
+  align-self: flex-start;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #fff;
+}
+.tile-kind.tk-movie {
+  background: #3b82f6;
+}
+.tile-kind.tk-book {
+  background: #8b5cf6;
+}
+.tile-kind.tk-game {
+  background: #f59e0b;
+}
+.tile-name {
+  font-size: 12px;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .card {
@@ -515,6 +716,9 @@ onMounted(async () => {
 @media (max-width: 1080px) {
   .cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .shelf-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

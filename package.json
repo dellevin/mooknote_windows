@@ -1,6 +1,6 @@
 {
   "name": "mooknote-windows",
-  "version": "0.1.0-beta",
+  "version": "0.1.2-beta",
   "description": "MookNote Windows (Electron + Vue)",
   "main": "./out/main/index.js",
   "author": "MookNote",
@@ -28,6 +28,12 @@
     ],
     "asarUnpack": [
       "**/node_modules/better-sqlite3/**"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
     ],
     "win": {
       "target": [

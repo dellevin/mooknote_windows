@@ -18,6 +18,7 @@ export function createMediaStore(kind: MediaKind) {
     const loadingMore = ref(false)
     const hasMore = ref(false)
     const status = ref<string>('')
+    const category = ref('')
     const keyword = ref('')
     const sortMode = ref(initialSort())
     const counts = ref<Record<string, number>>({})
@@ -25,6 +26,7 @@ export function createMediaStore(kind: MediaKind) {
     function query(limit: number, offset: number) {
       return window.mook[kind].list({
         status: status.value || undefined,
+        category: category.value || undefined,
         keyword: keyword.value.trim() || undefined,
         sortMode: sortMode.value,
         limit,
@@ -63,6 +65,10 @@ export function createMediaStore(kind: MediaKind) {
       status.value = s
       void refresh()
     }
+    function setCategory(c: string): void {
+      category.value = c
+      void refresh()
+    }
     function setSort(m: number): void {
       sortMode.value = m
       localStorage.setItem(sortKey, String(m))
@@ -79,6 +85,7 @@ export function createMediaStore(kind: MediaKind) {
       loadingMore,
       hasMore,
       status,
+      category,
       keyword,
       sortMode,
       counts,
@@ -86,6 +93,7 @@ export function createMediaStore(kind: MediaKind) {
       loadMore,
       refreshCounts,
       setStatus,
+      setCategory,
       setSort,
       search
     }

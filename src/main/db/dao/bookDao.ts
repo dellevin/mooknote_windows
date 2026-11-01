@@ -192,8 +192,14 @@ class BookDao {
   allMetadata(): { authors: string[]; translators: string[]; genres: string[]; publishers: string[] } {
     const books = this.list()
     const strs = new Set<string>()
-    const uniqList = (pick: (b: Book) => string[]): string[] => {
-      const set = new Set<string>()
+    // 合并 tags 表中未隐藏的类型标签，使 0 引用的标签也能在编辑时被选到
+    const tagGenres = (
+      this.db()
+        .prepare('SELECT name FROM tags WHERE type = ? AND is_hidden = 0')
+        .all('book_genre') as { name: string }[]
+    ).map((r) => r.name)
+    const uniqList = (pick: (b: Book) => string[], extras: string[] = []): string[] => {
+      const set = new Set<string>(extras)
       for (const b of books) pick(b).forEach((v) => set.add(v))
       return [...set].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
     }
@@ -201,7 +207,7 @@ class BookDao {
     return {
       authors: uniqList((b) => b.authors),
       translators: uniqList((b) => b.translators),
-      genres: uniqList((b) => b.genres),
+      genres: uniqList((b) => b.genres, tagGenres),
       publishers: [...strs].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
     }
   }

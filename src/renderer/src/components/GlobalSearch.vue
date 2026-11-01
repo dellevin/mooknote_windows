@@ -406,23 +406,26 @@ function reset(): void {
 
       <!-- 增强 -->
       <NTabPane name="vip" tab="增强搜索">
-        <div class="kind-toggle">
-          <NButton
-            size="small"
-            :type="vipKind === 'movie' ? 'primary' : 'default'"
-            @click="switchVipKind('movie')"
-          >
-            影视
-          </NButton>
-          <NButton
-            size="small"
-            :type="vipKind === 'book' ? 'primary' : 'default'"
-            @click="switchVipKind('book')"
-          >
-            书籍
-          </NButton>
-        </div>
-        <div class="local-search">
+        <div class="local-search vip-search">
+          <div class="kind-toggle">
+            <button
+              type="button"
+              class="kind-btn"
+              :class="{ on: vipKind === 'movie' }"
+              @click="switchVipKind('movie')"
+            >
+              影视
+            </button>
+            <button
+              type="button"
+              class="kind-btn"
+              :class="{ on: vipKind === 'book' }"
+              @click="switchVipKind('book')"
+            >
+              书籍
+            </button>
+          </div>
+          <span class="ls-divider" />
           <svg class="ls-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="8" />
@@ -655,9 +658,34 @@ function reset(): void {
 }
 .kind-toggle {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   flex-shrink: 0;
-  margin-bottom: 12px;
+}
+.kind-btn {
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: #8a909c;
+  padding: 5px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.12s ease;
+}
+.kind-btn:hover {
+  color: var(--text-strong);
+  background: rgba(17, 17, 17, 0.05);
+}
+.kind-btn.on {
+  color: #fff;
+  background: var(--accent);
+}
+.ls-divider {
+  width: 1px;
+  height: 20px;
+  background: #dfe2e9;
+  flex-shrink: 0;
 }
 .empty {
   height: 56vh;

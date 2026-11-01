@@ -9,6 +9,8 @@ import {
   NInput,
   NModal,
   NProgress,
+  NRadio,
+  NRadioGroup,
   NSelect,
   NSpace,
   NTag,
@@ -718,6 +720,14 @@ async function onSkinPick(key: string): Promise<void> {
   }
 }
 
+// 关闭窗口行为：ask=每次询问 tray=最小化到托盘 quit=退出程序
+const closeAction = ref<'ask' | 'tray' | 'quit'>('ask')
+async function onCloseActionPick(v: 'ask' | 'tray' | 'quit'): Promise<void> {
+  closeAction.value = v
+  await window.mook.prefs.set('closeAction', v)
+  message.success('已保存')
+}
+
 const uiFont = ref('system')
 // 预览区跟随鼠标悬停的卡片，移出后回到当前选中字体
 const previewFont = ref('system')
@@ -739,6 +749,7 @@ async function onFontPick(v: string): Promise<void> {
 onMounted(async () => {
   preloadFontFaces()
   info.value = await window.mook.appInfo()
+  closeAction.value = await window.mook.prefs.get<'ask' | 'tray' | 'quit'>('closeAction', 'ask')
   uiFont.value = await window.mook.prefs.get<string>('uiFont', 'system')
   previewFont.value = uiFont.value
   tmdbToken.value = await window.mook.prefs.get<string>('tmdbApiToken', '')
@@ -845,6 +856,17 @@ onMounted(async () => {
                 </p>
               </div>
             </div>
+          </div>
+
+          <div class="form-row">
+            <label class="lbl">关闭窗口操作</label>
+            <NRadioGroup :value="closeAction" @update:value="onCloseActionPick">
+              <NSpace>
+                <NRadio value="ask">每次询问</NRadio>
+                <NRadio value="tray">最小化到托盘</NRadio>
+                <NRadio value="quit">退出程序</NRadio>
+              </NSpace>
+            </NRadioGroup>
           </div>
         </NCard>
       </div>

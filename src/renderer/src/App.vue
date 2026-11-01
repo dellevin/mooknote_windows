@@ -256,6 +256,21 @@ function winClose(): void {
   window.mook.window.close()
 }
 
+// 关窗询问：主进程请求时弹出应用内对话框，替代系统原生弹窗
+const closeAsk = ref(false)
+const closeRemember = ref(false)
+function answerClose(quit: boolean): void {
+  window.mook.window.closeDecision(quit, closeRemember.value)
+  closeAsk.value = false
+  closeRemember.value = false
+}
+// 点遮罩 = 取消关闭，窗口保持原样；必须显式选择按钮
+function cancelClose(): void {
+  window.mook.window.closeCancel()
+  closeAsk.value = false
+  closeRemember.value = false
+}
+
 onMounted(async () => {
   await loadCustomModules()
   const p = await window.mook.prefs.all()
@@ -271,6 +286,10 @@ onMounted(async () => {
   material.value = shell.material
   window.addEventListener('custom-modules-changed', onModulesChanged)
   window.mook.window.onMaximizedChange((v) => (isMaximized.value = v))
+  window.mook.window.onCloseQuery(() => {
+    closeRemember.value = false
+    closeAsk.value = true
+  })
 })
 
 onBeforeUnmount(() => {
@@ -460,6 +479,23 @@ function onRailPointerUp(): void {
                     <button class="profile-btn" @click="saveProfile">保存</button>
                   </div>
                 </template>
+              </div>
+            </div>
+          </transition>
+
+          <!-- 关闭窗口询问：应用内自定义弹窗，替代系统原生 MessageBox -->
+          <transition name="close-pop">
+            <div v-if="closeAsk" class="close-mask" @click.self="cancelClose">
+              <div class="close-dialog">
+                <div class="cd-title">关闭窗口时要怎么做？</div>
+                <div class="cd-actions">
+                  <button class="cd-btn" @click="answerClose(false)">最小化到托盘</button>
+                  <button class="cd-btn primary" @click="answerClose(true)">退出程序</button>
+                </div>
+                <label class="cd-remember">
+                  <input type="checkbox" v-model="closeRemember" />
+                  <span>记住我的选择（可在设置中修改）</span>
+                </label>
               </div>
             </div>
           </transition>
@@ -867,6 +903,78 @@ body.rail-resizing {
 .profile-btn.ghost:hover {
   background: rgba(17, 17, 17, 0.06);
   filter: none;
+}
+
+/* 关窗询问弹窗 */
+.close-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 17, 17, 0.22);
+}
+.close-dialog {
+  width: 300px;
+  padding: 18px 18px 14px;
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  box-shadow: 0 8px 28px rgba(17, 17, 17, 0.18);
+}
+.cd-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-strong, #1f2329);
+}
+.cd-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.cd-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 8px;
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  background: var(--surface, #fff);
+  color: var(--text-strong, #1f2329);
+  cursor: pointer;
+}
+.cd-btn:hover {
+  background: rgba(17, 17, 17, 0.05);
+}
+.cd-btn.primary {
+  background: var(--accent, #1f2329);
+  border-color: transparent;
+  color: var(--on-accent, #fff);
+}
+.cd-btn.primary:hover {
+  filter: brightness(1.1);
+}
+.cd-remember {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: var(--text, #5b616c);
+  cursor: pointer;
+  user-select: none;
+}
+.cd-remember input {
+  accent-color: var(--accent, #1f2329);
+  cursor: pointer;
+}
+.close-pop-enter-active,
+.close-pop-leave-active {
+  transition: opacity 0.15s ease;
+}
+.close-pop-enter-from,
+.close-pop-leave-to {
+  opacity: 0;
 }
 
 /* 像通知一样从左侧滑入，慢速；只做位移，不淡入，避免毛玻璃背景闪烁 */

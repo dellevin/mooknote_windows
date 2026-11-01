@@ -10,7 +10,12 @@ import {
 } from 'naive-ui'
 import { useMovieStore } from '@/stores/movie'
 import { useInfiniteScroll } from '@/utils/infiniteScroll'
-import { MOVIE_STATUS_LABELS, MOVIE_SORT_LABELS, type MovieStatus } from '@shared/types'
+import {
+  MOVIE_STATUS_LABELS,
+  MOVIE_SORT_LABELS,
+  MOVIE_CATEGORY_LABELS,
+  type MovieStatus
+} from '@shared/types'
 import PosterCard from '@/components/PosterCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import MovieFormModal from '@/components/MovieFormModal.vue'
@@ -85,6 +90,11 @@ const sortOptions = Object.entries(MOVIE_SORT_LABELS).map(([value, label]) => ({
   value: Number(value)
 }))
 
+const categoryOptions = [
+  { label: '全部分类', value: '' },
+  ...Object.entries(MOVIE_CATEGORY_LABELS).map(([value, label]) => ({ label, value }))
+]
+
 const formShow = ref(false)
 const formEditId = ref<string | null>(null)
 const detailShow = ref(false)
@@ -114,6 +124,17 @@ async function onChanged(): Promise<void> {
   await Promise.all([store.refresh(), store.refreshCounts()])
 }
 
+const refreshing = ref(false)
+async function onRefresh(): Promise<void> {
+  if (refreshing.value) return
+  refreshing.value = true
+  try {
+    await onChanged()
+  } finally {
+    refreshing.value = false
+  }
+}
+
 onMounted(() => {
   void onChanged()
 })
@@ -140,6 +161,13 @@ onMounted(() => {
             </template>
           </NInput>
           <NSelect
+            :value="store.category"
+            :options="categoryOptions"
+            class="category"
+            :consistent-menu-width="false"
+            @update:value="store.setCategory"
+          />
+          <NSelect
             :value="sortMode"
             :options="sortOptions"
             class="sort"
@@ -160,15 +188,29 @@ onMounted(() => {
           </NButton>
         </div>
       </div>
-      <NButton quaternary class="bin-btn" @click="binShow = true">
-        <svg class="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 6h18" />
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-          <line x1="10" x2="10" y1="11" y2="17" />
-          <line x1="14" x2="14" y1="11" y2="17" />
-        </svg>
-        回收站
-      </NButton>
+      <div class="tool-actions">
+        <button
+          type="button"
+          class="icon-btn"
+          :disabled="refreshing"
+          @click="onRefresh"
+        >
+          <svg class="ic" :class="{ spinning: refreshing }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
+          <span>刷新</span>
+        </button>
+        <button type="button" class="icon-btn" @click="binShow = true">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18" />
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            <line x1="10" x2="10" y1="11" y2="17" />
+            <line x1="14" x2="14" y1="11" y2="17" />
+          </svg>
+          <span>回收站</span>
+        </button>
+      </div>
       <div class="tabs">
         <button
           v-for="t in tabs"
@@ -328,16 +370,69 @@ onMounted(() => {
 .sort {
   width: 140px;
 }
-.sort :deep(.n-base-selection) {
+.category {
+  width: 124px;
+  flex-shrink: 0;
+}
+.sort :deep(.n-base-selection),
+.category :deep(.n-base-selection) {
   border-radius: 999px;
   background: var(--surface);
   box-shadow: 0 1px 4px rgba(17, 17, 17, 0.05);
 }
-.bin-btn {
+.tool-actions {
   grid-column: 2;
   grid-row: 1 / span 2;
   align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   flex-shrink: 0;
+}
+.icon-btn {
+  height: 34px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  white-space: nowrap;
+  border: 1px solid rgba(17, 17, 17, 0.09);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-strong);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(17, 17, 17, 0.05);
+  transition: all 0.14s ease;
+}
+.icon-btn:hover {
+  background: #f5f6f8;
+  color: #000;
+  box-shadow: 0 2px 8px rgba(17, 17, 17, 0.1);
+}
+.icon-btn:active {
+  background: #eceef1;
+}
+.icon-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.icon-btn .ic {
+  width: 15px;
+  height: 15px;
+  color: #5b616c;
+}
+.icon-btn .spinning {
+  animation: ic-spin 0.8s linear infinite;
+}
+@keyframes ic-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .multi-btn {
   flex-shrink: 0;
@@ -367,10 +462,6 @@ onMounted(() => {
 .ic-multi {
   width: 15px;
   height: 15px;
-}
-.ic-trash {
-  width: 22px !important;
-  height: 22px !important;
 }
 .grid {
   display: grid;
