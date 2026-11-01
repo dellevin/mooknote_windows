@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   NButton,
   NEmpty,
@@ -16,7 +16,9 @@ import {
   NImage,
   NImageGroup,
   NPopconfirm,
-  useMessage
+  NCheckbox,
+  useMessage,
+  useDialog
 } from 'naive-ui'
 import type { Review, ReviewKind, ReviewInput, ReviewType } from '@shared/types'
 import { REVIEW_TYPE_LABELS } from '@shared/types'
@@ -25,8 +27,52 @@ import { toImgUrl, isoToTs, tsToIso, formatDate, plain } from '@/utils/image'
 const props = defineProps<{ kind: ReviewKind; parentId: string }>()
 
 const message = useMessage()
+const dialog = useDialog()
 const reviews = ref<Review[]>([])
 const loading = ref(false)
+
+// 多选批量删除
+const selectMode = ref(false)
+const selectedIds = ref<Set<string>>(new Set())
+const allSelected = computed(
+  () => reviews.value.length > 0 && selectedIds.value.size === reviews.value.length
+)
+function enterSelect(): void {
+  selectMode.value = true
+  selectedIds.value = new Set()
+}
+function exitSelect(): void {
+  selectMode.value = false
+  selectedIds.value = new Set()
+}
+function toggleSelect(id: string): void {
+  const next = new Set(selectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedIds.value = next
+}
+function toggleSelectAll(): void {
+  selectedIds.value = allSelected.value
+    ? new Set()
+    : new Set(reviews.value.map((r: Review) => r.id))
+}
+function batchRemove(): void {
+  const n = selectedIds.value.size
+  if (!n) return
+  dialog.warning({
+    title: '批量删除',
+    content: `确定删除选中的 ${n} 条评价吗？删除后不可恢复。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      await Promise.all(
+        [...selectedIds.value].map((id) => window.mook.review.remove(props.kind, id))
+      )
+      exitSelect()
+      await load()
+    }
+  })
+}
 
 async function load(): Promise<void> {
   loading.value = true
@@ -134,13 +180,44 @@ async function remove(r: Review): Promise<void> {
   <div class="section">
     <div class="section-head">
       <span class="section-title">评价（{{ reviews.length }}）</span>
-      <NButton size="tiny" type="primary" ghost @click="openAdd">＋ 写评价</NButton>
+      <NSpace :size="6">
+        <template v-if="selectMode">
+          <NButton size="tiny" quaternary @click="toggleSelectAll">
+            {{ allSelected ? '取消全选' : '全选' }}
+          </NButton>
+          <NButton
+            size="tiny"
+            type="error"
+            ghost
+            :disabled="!selectedIds.size"
+            @click="batchRemove"
+          >
+            删除<span v-if="selectedIds.size">（{{ selectedIds.size }}）</span>
+          </NButton>
+          <NButton size="tiny" quaternary @click="exitSelect">完成</NButton>
+        </template>
+        <template v-else>
+          <NButton size="tiny" quaternary :disabled="!reviews.length" @click="enterSelect">
+            多选
+          </NButton>
+          <NButton size="tiny" type="primary" ghost @click="openAdd">＋ 写评价</NButton>
+        </template>
+      </NSpace>
     </div>
 
     <NSpin :show="loading">
       <NEmpty v-if="!reviews.length && !loading" description="还没有评价" size="small" />
       <div v-else class="review-list">
-        <div v-for="r in reviews" :key="r.id" class="review">
+        <div
+          v-for="r in reviews"
+          :key="r.id"
+          class="review"
+          :class="{ picked: selectMode && selectedIds.has(r.id) }"
+          @click="selectMode ? toggleSelect(r.id) : undefined"
+        >
+          <div v-if="selectMode" class="pick-row">
+            <NCheckbox :checked="selectedIds.has(r.id)" @click.stop @update:checked="() => toggleSelect(r.id)" />
+          </div>
           <div class="review-meta">
             <NTag size="tiny" :type="r.reviewType === 2 ? 'warning' : 'default'" :bordered="false">
               {{ REVIEW_TYPE_LABELS[r.reviewType] }}
@@ -163,7 +240,7 @@ async function remove(r: Review): Promise<void> {
               </NSpace>
             </NImageGroup>
           </div>
-          <div class="review-actions">
+          <div v-if="!selectMode" class="review-actions">
             <NButton size="tiny" quaternary @click="openEdit(r)">编辑</NButton>
             <NPopconfirm to="body" @positive-click="remove(r)">
               <template #trigger>
@@ -245,6 +322,15 @@ async function remove(r: Review): Promise<void> {
   border-radius: 10px;
   padding: 12px 14px;
   margin-bottom: 10px;
+}
+.review.picked {
+  border-color: var(--accent, #2563eb);
+  background: color-mix(in srgb, var(--accent, #2563eb) 5%, #fff);
+}
+.pick-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
 }
 .review-meta {
   display: flex;

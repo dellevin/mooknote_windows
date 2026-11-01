@@ -102,8 +102,10 @@ const saving = ref(false)
 const form = ref({
   no: 1,
   title: '',
+  done: true,
   dateTs: null as number | null,
   rating: null as number | null,
+  duration: null as number | null,
   review: '',
   images: [] as string[]
 })
@@ -113,8 +115,10 @@ function openAdd(): void {
   form.value = {
     no: entries.value.length + 1,
     title: '',
+    done: true,
     dateTs: Date.now(),
     rating: null,
+    duration: null,
     review: '',
     images: []
   }
@@ -125,12 +129,49 @@ function openEdit(e: ProgressEntry): void {
   form.value = {
     no: e.no,
     title: e.title,
+    done: e.done,
     dateTs: isoToTs(e.date),
     rating: e.rating,
+    duration: e.duration ?? null,
     review: e.review,
     images: [...e.images]
   }
   editorShow.value = true
+}
+
+// ---- 批量生成 ----
+const batchShow = ref(false)
+const batchStart = ref(1)
+const batchCount = ref(10)
+const batching = ref(false)
+function openBatch(): void {
+  batchStart.value = entries.value.length
+    ? Math.max(...entries.value.map((e) => e.no)) + 1
+    : 1
+  batchCount.value = 10
+  batchShow.value = true
+}
+async function runBatch(): Promise<void> {
+  const start = batchStart.value || 1
+  const count = batchCount.value || 0
+  if (count <= 0) {
+    message.warning('请填写生成数量')
+    return
+  }
+  batching.value = true
+  try {
+    const created = await window.mook.progress.batchGenerate(
+      props.kind,
+      props.parentId,
+      start,
+      count
+    )
+    message.success(`已生成 ${created} 条`)
+    batchShow.value = false
+    await load()
+  } finally {
+    batching.value = false
+  }
 }
 
 async function pickImages(): Promise<void> {
@@ -152,11 +193,12 @@ async function save(): Promise<void> {
       parentId: props.parentId,
       no: form.value.no || 0,
       title: form.value.title.trim(),
-      done: true,
-      date: tsToIso(form.value.dateTs),
+      done: form.value.done,
+      date: form.value.done ? tsToIso(form.value.dateTs) : null,
       rating: form.value.rating,
       review: form.value.review.trim(),
       images: form.value.images,
+      ...(props.kind === 'episode' ? { duration: form.value.duration ?? 0 } : {}),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }
@@ -203,6 +245,7 @@ async function remove(e: ProgressEntry): Promise<void> {
           <NButton size="tiny" quaternary :disabled="!entries.length" @click="enterSelect">
             多选
           </NButton>
+          <NButton size="tiny" quaternary @click="openBatch">批量生成</NButton>
           <NButton size="tiny" type="primary" ghost @click="openAdd">＋ 添加{{ noLabel }}</NButton>
         </template>
       </div>
@@ -237,6 +280,9 @@ async function remove(e: ProgressEntry): Promise<void> {
               :max="10"
               allow-half
             />
+            <span v-if="kind === 'episode' && e.duration" class="date">
+              {{ e.duration }} 分钟
+            </span>
             <span class="date">{{ formatDate(e.date) }}</span>
             <NButton size="tiny" quaternary @click="openEdit(e)">编辑</NButton>
             <NPopconfirm to="body" @positive-click="remove(e)">
@@ -270,12 +316,21 @@ async function remove(e: ProgressEntry): Promise<void> {
       <div class="editor">
         <h3>{{ editingId && entries.some((e) => e.id === editingId) ? '编辑' : '添加' }}{{ noLabel }}记录</h3>
         <NForm label-placement="top" size="small">
-          <div class="grid-3">
+          <NFormItem label="状态">
+            <NCheckbox v-model:checked="form.done">已完成</NCheckbox>
+          </NFormItem>
+          <div class="grid-3" :class="{ 'grid-4': kind === 'episode' }">
             <NFormItem :label="`${noLabel}号`">
               <NInputNumber v-model:value="form.no" :min="1" class="full" />
             </NFormItem>
             <NFormItem label="日期">
-              <NDatePicker v-model:value="form.dateTs" type="date" clearable class="full" />
+              <NDatePicker
+                v-model:value="form.dateTs"
+                type="date"
+                clearable
+                :disabled="!form.done"
+                class="full"
+              />
             </NFormItem>
             <NFormItem label="评分">
               <NInputNumber
@@ -283,6 +338,15 @@ async function remove(e: ProgressEntry): Promise<void> {
                 :min="0"
                 :max="10"
                 :step="0.5"
+                clearable
+                class="full"
+              />
+            </NFormItem>
+            <NFormItem v-if="kind === 'episode'" label="本集时长（分钟）">
+              <NInputNumber
+                v-model:value="form.duration"
+                :min="0"
+                :step="1"
                 clearable
                 class="full"
               />
@@ -312,6 +376,29 @@ async function remove(e: ProgressEntry): Promise<void> {
           <NSpace justify="end">
             <NButton @click="editorShow = false">取消</NButton>
             <NButton type="primary" :loading="saving" @click="save">保存</NButton>
+          </NSpace>
+        </div>
+      </div>
+    </NModal>
+
+    <NModal v-model:show="batchShow" :auto-focus="false">
+      <div class="editor">
+        <h3>批量生成{{ noLabel }}记录</h3>
+        <NForm label-placement="top" size="small">
+          <div class="grid-2">
+            <NFormItem :label="`起始${noLabel}号`">
+              <NInputNumber v-model:value="batchStart" :min="1" class="full" />
+            </NFormItem>
+            <NFormItem label="生成数量">
+              <NInputNumber v-model:value="batchCount" :min="1" :step="10" class="full" />
+            </NFormItem>
+          </div>
+          <p class="batch-tip">从起始序号起连续生成空白（未完成）记录，已存在的序号会自动跳过。</p>
+        </NForm>
+        <div class="editor-footer">
+          <NSpace justify="end">
+            <NButton @click="batchShow = false">取消</NButton>
+            <NButton type="primary" :loading="batching" @click="runBatch">生成</NButton>
           </NSpace>
         </div>
       </div>
@@ -401,6 +488,19 @@ async function remove(e: ProgressEntry): Promise<void> {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 0 14px;
+}
+.grid-3.grid-4 {
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+}
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 14px;
+}
+.batch-tip {
+  font-size: 12px;
+  color: #9aa0ac;
+  margin: 4px 0 0;
 }
 .full {
   width: 100%;

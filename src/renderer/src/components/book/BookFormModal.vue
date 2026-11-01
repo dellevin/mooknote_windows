@@ -49,6 +49,7 @@ interface FormState {
   startTs: number | null
   finishTs: number | null
   readCount: number
+  readDuration: number
   coverOffset: number
 }
 
@@ -71,6 +72,7 @@ function emptyForm(id: string): FormState {
     startTs: null,
     finishTs: null,
     readCount: 0,
+    readDuration: 0,
     coverOffset: 0
   }
 }
@@ -134,6 +136,7 @@ async function hydrate(): Promise<void> {
         startTs: isoToTs(b.startDate),
         finishTs: isoToTs(b.finishDate),
         readCount: b.readCount,
+        readDuration: b.readDuration ?? 0,
         coverOffset: b.coverOffset
       })
       return
@@ -181,6 +184,7 @@ async function save(): Promise<void> {
       startDate: tsToIso(form.startTs),
       finishDate: tsToIso(form.finishTs),
       readCount: form.readCount || 0,
+      readDuration: form.readDuration || 0,
       coverOffset: form.coverOffset
     }
     const body = plain(payload)
@@ -285,6 +289,14 @@ defineExpose({ hydrate })
               <NFormItem label="阅读次数">
                 <NInputNumber
                   v-model:value="form.readCount"
+                  :min="0"
+                  :step="1"
+                  class="full"
+                />
+              </NFormItem>
+              <NFormItem label="阅读总时长（分钟）">
+                <NInputNumber
+                  v-model:value="form.readDuration"
                   :min="0"
                   :step="1"
                   class="full"

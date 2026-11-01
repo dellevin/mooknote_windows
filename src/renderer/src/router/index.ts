@@ -82,6 +82,27 @@ const router = createRouter({
       path: '/db',
       name: 'db',
       component: () => import('@/pages/DbBrowserPage.vue')
+    },
+    {
+      // 独立透明选区窗口专用路由：不渲染应用外壳
+      path: '/ocr-capture',
+      name: 'ocr-capture',
+      component: () => import('@/pages/OcrCapturePage.vue'),
+      meta: { bare: true }
+    },
+    {
+      // 桌面悬浮球独立窗口
+      path: '/float-ball',
+      name: 'float-ball',
+      component: () => import('@/pages/float/FloatBallPage.vue'),
+      meta: { bare: true }
+    },
+    {
+      // 悬浮球功能面板（菜单 / OCR 结果）独立窗口
+      path: '/float-panel',
+      name: 'float-panel',
+      component: () => import('@/pages/float/FloatPanelPage.vue'),
+      meta: { bare: true }
     }
   ]
 })

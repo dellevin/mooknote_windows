@@ -76,6 +76,7 @@ export interface Book {
   startDate: string | null
   finishDate: string | null
   readCount: number
+  readDuration: number // 阅读总时长（分钟）
   createdAt: string
   updatedAt: string
   isDeleted: boolean
@@ -212,6 +213,7 @@ export interface ProgressEntry {
   rating: number | null
   review: string
   images: string[]
+  duration?: number // 仅分集：本集时长（分钟）
   createdAt: string
   updatedAt: string
 }
@@ -701,3 +703,12 @@ export interface IncSyncResult {
   dedupImages: number
   needReload: boolean
 }
+
+// OCR 识别结果行
+export interface OcrLine {
+  text: string
+  confidence: number
+}
+
+// 云端 OCR 识别结果行
+export type CloudOcrLine = OcrLine

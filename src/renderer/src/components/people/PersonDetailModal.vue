@@ -13,6 +13,9 @@ import type { Person, PersonWork, MediaKind } from '@shared/types'
 import { PERSON_ROLE_LABELS } from '@shared/types'
 import { toImgUrl, formatDate } from '@/utils/image'
 import PersonFormModal from './PersonFormModal.vue'
+import MovieDetailModal from '@/components/MovieDetailModal.vue'
+import BookDetailModal from '@/components/book/BookDetailModal.vue'
+import GameDetailModal from '@/components/game/GameDetailModal.vue'
 
 const props = defineProps<{ show: boolean; id: string | null }>()
 const emit = defineEmits<{
@@ -26,6 +29,16 @@ const person = ref<Person | null>(null)
 const works = ref<PersonWork[]>([])
 const loading = ref(false)
 const editShow = ref(false)
+
+// 点击关联作品 → 打开对应媒体详情（不再跳转到列表页）
+const workShow = ref(false)
+const workKind = ref<MediaKind | null>(null)
+const workId = ref<string | null>(null)
+function openWork(w: PersonWork): void {
+  workKind.value = w.kind
+  workId.value = w.workId
+  workShow.value = true
+}
 
 async function load(): Promise<void> {
   if (!props.id) return
@@ -80,7 +93,7 @@ function askDelete(): void {
 <template>
   <NModal :show="show" @update:show="(v: boolean) => emit('update:show', v)" :auto-focus="false">
     <div class="detail-card">
-      <NSpin :show="loading">
+      <NSpin :show="loading" class="detail-spin">
         <NEmpty v-if="!person && !loading" description="记录不存在或已删除" />
         <template v-else-if="person">
           <div class="hero">
@@ -123,8 +136,12 @@ function askDelete(): void {
                   v-for="w in list"
                   :key="w.linkId"
                   class="work-item"
-                  @click="emit('open-work', w.kind, w.workId)"
+                  @click="openWork(w)"
                 >
+                  <div class="work-cover">
+                    <img v-if="w.coverPath" :src="toImgUrl(w.coverPath)" />
+                    <span v-else class="cover-empty">{{ w.title.slice(0, 1) }}</span>
+                  </div>
                   <span class="work-title">{{ w.title }}</span>
                   <span v-if="w.characterName" class="char">饰 {{ w.characterName }}</span>
                   <span v-if="w.rating != null" class="rate">★ {{ w.rating.toFixed(1) }}</span>
@@ -152,6 +169,10 @@ function askDelete(): void {
           }
         "
       />
+
+      <MovieDetailModal v-if="workKind === 'movie'" v-model:show="workShow" :id="workId" />
+      <BookDetailModal v-if="workKind === 'book'" v-model:show="workShow" :id="workId" />
+      <GameDetailModal v-if="workKind === 'game'" v-model:show="workShow" :id="workId" />
     </div>
   </NModal>
 </template>
@@ -164,6 +185,25 @@ function askDelete(): void {
   background: var(--surface);
   border-radius: 14px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* NSpin 包裹层需参与 flex 高度约束，内部 .body 的滚动才能生效 */
+.detail-spin {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.detail-spin :deep(.n-spin-container) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.detail-spin :deep(.n-spin-content) {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -256,6 +296,28 @@ function askDelete(): void {
 }
 .work-item:hover {
   background: #f3f5fb;
+}
+.work-cover {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 46px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #e2e5ee;
+}
+.work-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cover-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  color: #9aa0ac;
 }
 .work-title {
   color: var(--text-strong);

@@ -54,7 +54,8 @@ import type {
   TagType,
   TagDeleteMode,
   IncSyncResult,
-  IncSyncProgress
+  IncSyncProgress,
+  OcrLine
 } from '../shared/types'
 
 interface MediaQuery {
@@ -131,7 +132,13 @@ const api = {
     get: <T>(key: string, fallback?: T): Promise<T> =>
       ipcRenderer.invoke('prefs:get', key, fallback),
     set: (key: string, value: unknown): Promise<boolean> =>
-      ipcRenderer.invoke('prefs:set', key, value)
+      ipcRenderer.invoke('prefs:set', key, value),
+    onUiChanged: (cb: (key: string, value: unknown) => void): (() => void) => {
+      const listener = (_e: unknown, key: unknown, value: unknown): void =>
+        cb(String(key), value)
+      ipcRenderer.on('ui:changed', listener)
+      return () => ipcRenderer.removeListener('ui:changed', listener)
+    }
   },
   movie: {
     ...crud<Movie, MovieInput>('movie'),
@@ -205,6 +212,13 @@ const api = {
       ipcRenderer.invoke('progress:toggle', kind, id, done),
     remove: (kind: ProgressKind, id: string): Promise<boolean> =>
       ipcRenderer.invoke('progress:delete', kind, id),
+    batchGenerate: (
+      kind: ProgressKind,
+      parentId: string,
+      startNo: number,
+      count: number
+    ): Promise<number> =>
+      ipcRenderer.invoke('progress:batch-generate', kind, parentId, startNo, count),
     newId: (): Promise<string> => ipcRenderer.invoke('progress:new-id'),
     pickImages: (kind: ProgressKind, parentId: string): Promise<string[]> =>
       ipcRenderer.invoke('progress:pick-images', kind, parentId)
@@ -512,6 +526,56 @@ const api = {
     sync: (): Promise<number> => ipcRenderer.invoke('tag:sync'),
     usage: (type: TagType): Promise<Record<string, number>> =>
       ipcRenderer.invoke('tag:usage', type)
+  },
+  // 桌面悬浮球（独立置顶窗口）
+  float: {
+    dragStart: (): void => ipcRenderer.send('float:drag-start'),
+    dragMove: (): void => ipcRenderer.send('float:drag-move'),
+    dragEnd: (): void => ipcRenderer.send('float:drag-end'),
+    toggleMenu: (): Promise<void> => ipcRenderer.invoke('float:toggle-menu'),
+    setMode: (mode: 'menu' | 'result'): Promise<void> =>
+      ipcRenderer.invoke('float:set-mode', mode),
+    hide: (): void => ipcRenderer.send('float:hide'),
+    getEnabled: (): Promise<boolean> => ipcRenderer.invoke('float:get-enabled'),
+    setEnabled: (enabled: boolean): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('float:set-enabled', enabled),
+    onBusy: (cb: (busy: boolean) => void): (() => void) => {
+      const listener = (_e: unknown, busy: boolean): void => cb(busy)
+      ipcRenderer.on('float:busy', listener)
+      return () => ipcRenderer.removeListener('float:busy', listener)
+    },
+    onMode: (cb: (mode: 'menu' | 'result') => void): (() => void) => {
+      const listener = (_e: unknown, mode: 'menu' | 'result'): void => cb(mode)
+      ipcRenderer.on('float:mode', listener)
+      return () => ipcRenderer.removeListener('float:mode', listener)
+    },
+    onHidden: (cb: () => void): (() => void) => {
+      const listener = (): void => cb()
+      ipcRenderer.on('float:hidden', listener)
+      return () => ipcRenderer.removeListener('float:hidden', listener)
+    },
+    presented: (): void => ipcRenderer.send('float:panel-presented')
+  },
+  // OCR：悬浮球发起截屏选区识别
+  ocr: {
+    capture: (): Promise<OcrLine[] | null> => ipcRenderer.invoke('ocr:capture'),
+    cloudConfig: (): Promise<{ configured: boolean; model: string }> =>
+      ipcRenderer.invoke('ocr:cloud-config'),
+    cloudTest: (): Promise<{ ok: boolean; message: string }> =>
+      ipcRenderer.invoke('ocr:cloud-test'),
+    overlayInit: (
+      displayId: string
+    ): Promise<{
+      dataUrl: string
+      scaleFactor: number
+      pixels: { width: number; height: number } | null
+    } | null> => ipcRenderer.invoke('ocr:overlay-init', displayId),
+    overlayRecognize: (png: ArrayBuffer): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('ocr:overlay-result', png),
+    overlayCancel: (): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('ocr:overlay-cancel'),
+    copyText: (text: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('ocr:copy-text', text)
   },
   util: {
     uuid: (): string => randomUUID()

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, nextTick, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NButton,
@@ -13,6 +13,7 @@ import {
   NRadioGroup,
   NSelect,
   NSpace,
+  NSwitch,
   NTag,
   useMessage,
   useDialog
@@ -42,6 +43,7 @@ const MENU = [
   { id: 'backup', label: '本地备份' },
   { id: 'webdav', label: 'WebDAV 备份' },
   { id: 'excel', label: '导出 Excel' },
+  { id: 'float', label: '悬浮球' },
   { id: 'env', label: '运行环境' }
 ]
 
@@ -50,10 +52,43 @@ const message = useMessage()
 const dialog = useDialog()
 const router = useRouter()
 const exporting = ref<string | null>(null)
-const activeMenu = ref('appearance')
+const activeMenu = ref('float')
+// 悬浮球页内部的左侧子菜单，默认进入 OCR
+const FLOAT_SUBS = [
+  { id: 'general', label: '通用' },
+  { id: 'ocr', label: 'OCR' }
+] as const
+const floatSub = ref<(typeof FLOAT_SUBS)[number]['id']>('ocr')
+const ballEnabled = ref(true)
+
+async function onBallEnabledToggle(v: boolean): Promise<void> {
+  await window.mook.float.setEnabled(v)
+  ballEnabled.value = v
+}
+
+// 在线搜索页内部的左侧子菜单
+const SEARCH_SUBS = [
+  { id: 'tmdb', label: 'TMDB' },
+  { id: 'bgm', label: 'Bangumi' },
+  { id: 'vip', label: '增强搜索' }
+] as const
+const searchSub = ref<(typeof SEARCH_SUBS)[number]['id']>('tmdb')
+
+// 滚动时同步顶部高亮到当前可见面板（否则高亮停留在上次点击项）
+function onPanelsScroll(e: Event): void {
+  const box = e.currentTarget as HTMLElement
+  const line = box.getBoundingClientRect().top + 24
+  let current = activeMenu.value
+  for (const m of MENU) {
+    const el = document.getElementById(`set-${m.id}`)
+    if (el && el.getBoundingClientRect().top <= line) current = m.id
+  }
+  if (current !== activeMenu.value) activeMenu.value = current
+}
 
 function jumpTo(id: string): void {
   activeMenu.value = id
+  void window.mook.prefs.set('settingsActiveTab', id)
   document
     .getElementById(`set-${id}`)
     ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -709,6 +744,74 @@ async function davDownload(): Promise<void> {
   })
 }
 
+// ── OCR 识别模块：以可搜索标签的形式列出提供方，后续新增模块只需往 OCR_PROVIDERS 加一项 ──
+interface OcrProvider {
+  id: string
+  label: string
+  /** 该模块是否已配置（用于标签/卡片状态） */
+  ready: () => boolean
+}
+const ocrProviders: OcrProvider[] = [
+  { id: 'xfxingchen', label: '讯飞星辰 MaaS', ready: () => cloudConfigured.value }
+]
+const ocrProvider = ref('xfxingchen')
+const ocrProviderKeyword = ref('')
+const filteredOcrProviders = computed(() => {
+  const kw = ocrProviderKeyword.value.trim().toLowerCase()
+  if (!kw) return ocrProviders
+  return ocrProviders.filter((p) => p.label.toLowerCase().includes(kw))
+})
+function onPickOcrProvider(id: string): void {
+  ocrProvider.value = id
+}
+
+// ── 云端 OCR：讯飞星辰视觉大模型，凭证仅保存在本地 prefs ──
+const xfApiKey = ref('')
+const xfEndpoint = ref('')
+const xfModel = ref('')
+const cloudConfigured = ref(false)
+const XF_MODEL_OPTIONS = [
+  { label: 'PaddleOCR v1.6（xoppaddleocrv16）', value: 'xoppaddleocrv16' },
+  { label: 'DeepSeek OCR（xopdeepseekocr）', value: 'xopdeepseekocr' },
+  { label: '混元 OCR（xophunyuanocr）', value: 'xophunyuanocr' }
+]
+
+async function loadCloudOcr(): Promise<void> {
+  const cfg = await window.mook.ocr.cloudConfig()
+  cloudConfigured.value = cfg.configured
+  const p = window.mook.prefs
+  xfApiKey.value = await p.get('xfOcrApiKey', '')
+  xfEndpoint.value = await p.get('xfOcrEndpoint', '')
+  xfModel.value = (await p.get('xfOcrModel', '')) || cfg.model
+}
+async function saveCloudCredentials(): Promise<void> {
+  const p = window.mook.prefs.set.bind(window.mook.prefs)
+  await Promise.all([
+    p('xfOcrApiKey', xfApiKey.value.trim()),
+    p('xfOcrEndpoint', xfEndpoint.value.trim()),
+    p('xfOcrModel', xfModel.value.trim())
+  ])
+  await loadCloudOcr()
+  message.success('OCR 配置已保存')
+}
+
+// 测试：先把界面上未保存的输入落盘，再发真实请求验证密钥
+const cloudTesting = ref(false)
+async function testCurrentCloud(): Promise<void> {
+  if (cloudTesting.value) return
+  cloudTesting.value = true
+  try {
+    await saveCloudCredentials()
+    const r = await window.mook.ocr.cloudTest()
+    if (r.ok) message.success(r.message)
+    else message.error(r.message)
+  } catch (e) {
+    message.error('测试失败：' + String(e))
+  } finally {
+    cloudTesting.value = false
+  }
+}
+
 // ── 外观：皮肤 / 字体（切换即自动保存） ──
 const skinKey = computed(() => currentSkin.value.key)
 
@@ -768,6 +871,15 @@ onMounted(async () => {
   backupMode.value = await window.mook.prefs.get<BackupMode>('webdav_backup_mode', 'full')
   // 挂载时只读本地状态，不发起网络请求；版本号在切到增量模式或同步后拉取
   await refreshIncInfo(false)
+  await loadCloudOcr()
+  ballEnabled.value = await window.mook.float.getEnabled()
+  // 恢复上次选中的 tab，并把对应面板滚动到顶部（默认悬浮球页）
+  const saved = await window.mook.prefs.get<string>('settingsActiveTab', 'float')
+  if (MENU.some((m) => m.id === saved)) {
+    activeMenu.value = saved
+    await nextTick()
+    document.getElementById(`set-${saved}`)?.scrollIntoView({ block: 'start' })
+  }
 })
 </script>
 
@@ -788,7 +900,7 @@ onMounted(async () => {
       </button>
     </div>
 
-    <div class="panels">
+    <div class="panels" @scroll="onPanelsScroll">
       <div id="set-appearance" class="panel">
         <NCard title="软件外观" size="small" class="card">
           <p class="hint">自定义个性皮肤与界面字体，选择后自动保存并立即生效，下次启动时保留。</p>
@@ -872,139 +984,155 @@ onMounted(async () => {
       </div>
 
       <div id="set-search" class="panel">
-        <NCard title="在线搜索" size="small" class="card">
-          <!-- TMDB -->
-          <div class="search-sec">
-            <div class="sec-title">TMDB</div>
-            <p class="hint">
-              需在 themoviedb.org 申请 API Token 或 v3 API Key。代理支持 http://、https://，留空则直连。
-            </p>
-
-            <div class="form-row">
-              <label class="lbl">鉴权方式</label>
-              <NSelect
-                v-model:value="tmdbAuthType"
-                :options="authOptions"
-                size="small"
-                class="ctrl"
-              />
-            </div>
-            <div class="form-row">
-              <label class="lbl">Token / Key</label>
-              <NInput
-                v-model:value="tmdbToken"
-                size="small"
-                type="password"
-                show-password-on="click"
-                placeholder="粘贴 API Token 或 v3 API Key"
-                class="ctrl"
-              />
-            </div>
-            <div class="form-row">
-              <label class="lbl">代理</label>
-              <NInput
-                v-model:value="tmdbProxy"
-                size="small"
-                placeholder="http://127.0.0.1:7890（仅 TMDB 使用，可留空直连）"
-                class="ctrl"
-              />
-            </div>
-
-            <NSpace :size="10" class="save-row">
-              <NButton size="small" type="primary" :loading="savingTmdb" @click="saveTmdb">
-                保存
-              </NButton>
-              <NButton size="small" :loading="testing === 'tmdb'" @click="testTmdb">
-                测试连接
-              </NButton>
-              <NButton
-                size="small"
-                @click="openExternal('https://www.themoviedb.org/settings/api?language=zh-CN')"
+        <NCard title="在线搜索" size="small" class="card sub-card">
+          <div class="sub-settings">
+            <div class="sub-side">
+              <button
+                v-for="s in SEARCH_SUBS"
+                :key="s.id"
+                type="button"
+                class="sub-side-item"
+                :class="{ on: searchSub === s.id }"
+                @click="searchSub = s.id"
               >
-                获取 Token
-              </NButton>
-            </NSpace>
-          </div>
-
-          <!-- Bangumi -->
-          <div class="search-sec">
-            <div class="sec-title">Bangumi</div>
-            <p class="hint">
-              填写个人访问令牌后可使用Bangumi搜索接口。代理支持 http://、https://，留空则直连。
-            </p>
-
-            <div class="form-row">
-              <label class="lbl">Token</label>
-              <NInput
-                v-model:value="bgmToken"
-                size="small"
-                type="password"
-                show-password-on="click"
-                placeholder="个人访问令牌（可留空）"
-                class="ctrl"
-              />
+                {{ s.label }}
+              </button>
             </div>
-            <div class="form-row">
-              <label class="lbl">代理</label>
-              <NInput
-                v-model:value="bgmProxy"
-                size="small"
-                placeholder="http://127.0.0.1:7890（可留空）"
-                class="ctrl"
-              />
+            <div class="sub-main">
+              <!-- TMDB -->
+              <template v-if="searchSub === 'tmdb'">
+                <h3 class="sub-main-title">TMDB</h3>
+                <p class="hint">
+                  需在 themoviedb.org 申请 API Token 或 v3 API Key。代理支持 http://、https://，留空则直连。
+                </p>
+
+                <div class="form-row">
+                  <label class="lbl">鉴权方式</label>
+                  <NSelect
+                    v-model:value="tmdbAuthType"
+                    :options="authOptions"
+                    size="small"
+                    class="ctrl"
+                  />
+                </div>
+                <div class="form-row">
+                  <label class="lbl">Token / Key</label>
+                  <NInput
+                    v-model:value="tmdbToken"
+                    size="small"
+                    type="password"
+                    show-password-on="click"
+                    placeholder="粘贴 API Token 或 v3 API Key"
+                    class="ctrl"
+                  />
+                </div>
+                <div class="form-row">
+                  <label class="lbl">代理</label>
+                  <NInput
+                    v-model:value="tmdbProxy"
+                    size="small"
+                    placeholder="http://127.0.0.1:7890（仅 TMDB 使用，可留空直连）"
+                    class="ctrl"
+                  />
+                </div>
+
+                <NSpace :size="10" class="save-row">
+                  <NButton size="small" type="primary" :loading="savingTmdb" @click="saveTmdb">
+                    保存
+                  </NButton>
+                  <NButton size="small" :loading="testing === 'tmdb'" @click="testTmdb">
+                    测试连接
+                  </NButton>
+                  <NButton
+                    size="small"
+                    @click="openExternal('https://www.themoviedb.org/settings/api?language=zh-CN')"
+                  >
+                    获取 Token
+                  </NButton>
+                </NSpace>
+              </template>
+
+              <!-- Bangumi -->
+              <template v-else-if="searchSub === 'bgm'">
+                <h3 class="sub-main-title">Bangumi</h3>
+                <p class="hint">
+                  填写个人访问令牌后可使用Bangumi搜索接口。代理支持 http://、https://，留空则直连。
+                </p>
+
+                <div class="form-row">
+                  <label class="lbl">Token</label>
+                  <NInput
+                    v-model:value="bgmToken"
+                    size="small"
+                    type="password"
+                    show-password-on="click"
+                    placeholder="个人访问令牌（可留空）"
+                    class="ctrl"
+                  />
+                </div>
+                <div class="form-row">
+                  <label class="lbl">代理</label>
+                  <NInput
+                    v-model:value="bgmProxy"
+                    size="small"
+                    placeholder="http://127.0.0.1:7890（可留空）"
+                    class="ctrl"
+                  />
+                </div>
+
+                <NSpace :size="10" class="save-row">
+                  <NButton size="small" type="primary" :loading="savingBgm" @click="saveBgm">保存</NButton>
+                  <NButton size="small" :loading="testing === 'bgm'" @click="testBgm">测试连接</NButton>
+                  <NButton size="small" @click="openExternal('https://bangumi.github.io/api/')">
+                    获取 Token
+                  </NButton>
+                </NSpace>
+              </template>
+
+              <!-- 增强搜索 -->
+              <template v-else>
+                <h3 class="sub-main-title">增强搜索</h3>
+                <p class="hint">
+                  开发者自己创建的一个搜索功能，可以搜索书籍影视等信息汇集了7w+影视数据，300w+书籍数据
+                </p>
+
+                <div class="form-row vip-row">
+                  <label class="lbl">影视增强 Token</label>
+                  <div class="ctrl vip-field">
+                    <NInput
+                      v-model:value="movieVipToken"
+                      size="small"
+                      type="password"
+                      show-password-on="click"
+                      placeholder="输入影视搜索 Token"
+                    />
+                  </div>
+                </div>
+
+                <div class="form-row vip-row">
+                  <label class="lbl">书籍增强 Token</label>
+                  <div class="ctrl vip-field">
+                    <NInput
+                      v-model:value="bookVipToken"
+                      size="small"
+                      type="password"
+                      show-password-on="click"
+                      placeholder="输入书籍搜索 Token"
+                    />
+                  </div>
+                </div>
+
+                <NSpace :size="10" class="save-row vip-actions">
+                  <NButton size="small" type="primary" :loading="savingEnhanced" @click="saveEnhanced">
+                    保存
+                  </NButton>
+                  <NButton size="small" :loading="testingEnhanced" @click="testEnhanced">
+                    测试连接
+                  </NButton>
+                  <NButton size="small"  @click="openTokenDoc">获取 Token</NButton>
+                </NSpace>
+              </template>
             </div>
-
-            <NSpace :size="10" class="save-row">
-              <NButton size="small" type="primary" :loading="savingBgm" @click="saveBgm">保存</NButton>
-              <NButton size="small" :loading="testing === 'bgm'" @click="testBgm">测试连接</NButton>
-              <NButton size="small" @click="openExternal('https://bangumi.github.io/api/')">
-                获取 Token
-              </NButton>
-            </NSpace>
-          </div>
-
-          <!-- 增强搜索 -->
-          <div class="search-sec">
-            <div class="sec-title">增强搜索</div>
-            <p class="hint">
-              开发者自己创建的一个搜索功能，可以搜索书籍影视等信息汇集了7w+影视数据，300w+书籍数据
-            </p>
-            
-            <div class="form-row vip-row">
-              <label class="lbl">影视增强 Token</label>
-              <div class="ctrl vip-field">
-                <NInput
-                  v-model:value="movieVipToken"
-                  size="small"
-                  type="password"
-                  show-password-on="click"
-                  placeholder="输入影视搜索 Token"
-                />
-              </div>
-            </div>
-
-            <div class="form-row vip-row">
-              <label class="lbl">书籍增强 Token</label>
-              <div class="ctrl vip-field">
-                <NInput
-                  v-model:value="bookVipToken"
-                  size="small"
-                  type="password"
-                  show-password-on="click"
-                  placeholder="输入书籍搜索 Token"
-                />
-              </div>
-            </div>
-
-            <NSpace :size="10" class="save-row vip-actions">
-              <NButton size="small" type="primary" :loading="savingEnhanced" @click="saveEnhanced">
-                保存
-              </NButton>
-              <NButton size="small" :loading="testingEnhanced" @click="testEnhanced">
-                测试连接
-              </NButton>
-              <NButton size="small"  @click="openTokenDoc">获取 Token</NButton>
-            </NSpace>
           </div>
         </NCard>
       </div>
@@ -1180,6 +1308,116 @@ onMounted(async () => {
         </NCard>
       </div>
 
+      <div id="set-float" class="panel">
+        <NCard title="悬浮球" size="small" class="card float-card">
+          <div class="float-settings">
+            <div class="float-side">
+              <button
+                v-for="s in FLOAT_SUBS"
+                :key="s.id"
+                type="button"
+                class="float-side-item"
+                :class="{ on: floatSub === s.id }"
+                @click="floatSub = s.id"
+              >
+                {{ s.label }}
+              </button>
+            </div>
+            <div class="float-main">
+              <template v-if="floatSub === 'general'">
+                <h3 class="float-main-title">通用</h3>
+                <div class="form-row">
+                  <label class="lbl">显示悬浮球</label>
+                  <NSwitch :value="ballEnabled" @update:value="onBallEnabledToggle" />
+                </div>
+                <p class="hint">关闭后悬浮球在桌面隐藏，重新打开即可恢复，拖动后的位置会保留。</p>
+              </template>
+              <template v-else>
+                <h3 class="float-main-title">OCR 识别</h3>
+                <p class="hint">
+                  悬浮球截屏后调用下方识别模块识别文字。每个模块独立配置，密钥仅保存在本机。
+                </p>
+
+                <!-- 提供方标签：可搜索，选中后下方显示该 OCR 模块配置；后续新增只需往 OCR_PROVIDERS 加标签 -->
+                <div class="ocr-provider-bar">
+                  <NInput
+                    v-model:value="ocrProviderKeyword"
+                    size="small"
+                    class="ocr-provider-search"
+                    clearable
+                    placeholder="搜索识别模块"
+                  />
+                  <div class="ocr-provider-tags">
+                    <button
+                      v-for="p in filteredOcrProviders"
+                      :key="p.id"
+                      type="button"
+                      class="ocr-tag"
+                      :class="{ on: ocrProvider === p.id }"
+                      @click="onPickOcrProvider(p.id)"
+                    >
+                      <span class="ocr-tag-label">{{ p.label }}</span>
+                      <span class="ocr-tag-dot" :class="p.ready() ? 'ok' : 'no'" />
+                    </button>
+                    <span v-if="!filteredOcrProviders.length" class="ocr-provider-empty">无匹配的识别模块</span>
+                  </div>
+                </div>
+
+                <div v-if="ocrProvider === 'xfxingchen'" class="ocr-modules">
+                  <section class="ocr-module">
+                    <header class="ocr-module-head">
+                      <div class="ocr-module-name">
+                        <span class="ocr-module-title">讯飞星辰 MaaS</span>
+                        <NTag size="small" :type="cloudConfigured ? 'success' : 'warning'" :bordered="false">
+                          {{ cloudConfigured ? '已配置' : '未配置' }}
+                        </NTag>
+                      </div>
+                      <span class="ocr-module-desc">视觉 OCR 大模型，选择模型并填写 API Key</span>
+                    </header>
+                    <div class="form-row">
+                      <label class="lbl">接口地址</label>
+                      <NInput
+                        v-model:value="xfEndpoint"
+                        size="small"
+                        class="ctrl"
+                        placeholder="https://maas-api.cn-huabei-1.xf-yun.com/v2/chat/completions"
+                      />
+                    </div>
+                    <div class="form-row">
+                      <label class="lbl">API Key</label>
+                      <NInput
+                        v-model:value="xfApiKey"
+                        size="small"
+                        class="ctrl"
+                        type="password"
+                        show-password-on="click"
+                        placeholder="ak-xxxxxxxx"
+                      />
+                    </div>
+                    <div class="form-row">
+                      <label class="lbl">OCR 模型</label>
+                      <NSelect
+                        v-model:value="xfModel"
+                        size="small"
+                        class="ctrl"
+                        filterable
+                        tag
+                        :options="XF_MODEL_OPTIONS"
+                        placeholder="选择或直接输入 OCR 模型 ID"
+                      />
+                    </div>
+                    <NSpace :size="10" class="save-row">
+                      <NButton size="small" type="primary" @click="saveCloudCredentials">保存</NButton>
+                      <NButton size="small" :loading="cloudTesting" @click="testCurrentCloud">测试连接</NButton>
+                    </NSpace>
+                  </section>
+                </div>
+              </template>
+            </div>
+          </div>
+        </NCard>
+      </div>
+
       <div id="set-env" class="panel">
         <NCard v-if="info" title="运行环境" size="small" class="card">
           <NDescriptions label-placement="left" :column="1" size="small">
@@ -1307,6 +1545,147 @@ onMounted(async () => {
 .tab.on {
   color: var(--accent-ink);
   font-weight: 600;
+}
+.float-card .n-card__content,
+.sub-card .n-card__content {
+  padding-top: 4px;
+}
+.float-settings,
+.sub-settings {
+  display: flex;
+  gap: 18px;
+  align-items: stretch;
+}
+.float-side,
+.sub-side {
+  width: 104px;
+  flex: 0 0 104px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-right: 1px solid rgba(17, 17, 17, 0.08);
+}
+.float-side-item,
+.sub-side-item {
+  text-align: left;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-strong, #1f2329);
+  font-size: 13.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.float-side-item:hover,
+.sub-side-item:hover {
+  background: rgba(17, 17, 17, 0.06);
+}
+.float-side-item.on,
+.sub-side-item.on {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.float-main,
+.sub-main {
+  flex: 1;
+  min-width: 0;
+}
+.float-main-title,
+.sub-main-title {
+  margin: 4px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-strong, #1f2329);
+}
+/* OCR 识别模块：每个提供方一个独立小卡，后续并列追加即可 */
+.ocr-provider-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px 0 12px;
+}
+.ocr-provider-search {
+  max-width: 260px;
+}
+.ocr-provider-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.ocr-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--fluent-stroke, rgba(17, 17, 17, 0.12));
+  background: var(--surface, #fff);
+  color: var(--text-strong, #1f2329);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.ocr-tag:hover {
+  background: rgba(17, 17, 17, 0.05);
+}
+.ocr-tag.on {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent-ink) 40%, var(--surface));
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.ocr-tag-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.ocr-tag-dot.ok {
+  background: #18a058;
+}
+.ocr-tag-dot.no {
+  background: #c2c6cf;
+}
+.ocr-provider-empty {
+  font-size: 12px;
+  color: var(--text-dim, #9aa0ac);
+}
+.ocr-modules {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+.ocr-module {
+  border: 1px solid var(--fluent-stroke, rgba(17, 17, 17, 0.08));
+  border-radius: 12px;
+  padding: 12px 14px 14px;
+  background: var(--fluent-card, rgba(255, 255, 255, 0.6));
+}
+.ocr-module-head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 10px;
+}
+.ocr-module-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ocr-module-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-strong, #1f2329);
+}
+.ocr-module-desc {
+  font-size: 12px;
+  color: var(--text-dim, #9aa0ac);
 }
 .tab.on::after {
   background: var(--accent);

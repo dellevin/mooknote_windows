@@ -110,6 +110,14 @@ export function registerSupportingIpc(): void {
       return true
     }
   )
+  ipcMain.handle(
+    'progress:batch-generate',
+    (_e, kind: ProgressKind, parentId: string, startNo: number, count: number) => {
+      const created = progressDao.batchGenerate(kind, parentId, startNo, count)
+      if (created) touchParent(PROGRESS_PARENT_TABLE[kind], parentId)
+      return created
+    }
+  )
   ipcMain.handle('progress:delete', (_e, kind: ProgressKind, id: string) => {
     const parentId = progressDao.remove(kind, id)
     if (parentId) touchParent(PROGRESS_PARENT_TABLE[kind], parentId)

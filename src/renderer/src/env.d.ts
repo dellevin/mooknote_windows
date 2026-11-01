@@ -60,7 +60,8 @@ import type {
   TagType,
   TagDeleteMode,
   IncSyncResult,
-  IncSyncProgress
+  IncSyncProgress,
+  OcrLine
 } from '@shared/types'
 
 interface MediaQuery {
@@ -136,6 +137,7 @@ interface MookApi {
     all: () => Promise<Record<string, unknown>>
     get: <T>(key: string, fallback?: T) => Promise<T>
     set: (key: string, value: unknown) => Promise<boolean>
+    onUiChanged: (cb: (key: string, value: unknown) => void) => () => void
   }
   movie: MediaCrud<Movie, MovieInput> & {
     metadata: () => Promise<{
@@ -189,6 +191,12 @@ interface MookApi {
     save: (kind: ProgressKind, e: ProgressEntry, isNew: boolean) => Promise<boolean>
     toggle: (kind: ProgressKind, id: string, done: boolean) => Promise<boolean>
     remove: (kind: ProgressKind, id: string) => Promise<boolean>
+    batchGenerate: (
+      kind: ProgressKind,
+      parentId: string,
+      startNo: number,
+      count: number
+    ) => Promise<number>
     newId: () => Promise<string>
     pickImages: (kind: ProgressKind, parentId: string) => Promise<string[]>
   }
@@ -406,6 +414,35 @@ interface MookApi {
     remove: (id: string, mode: TagDeleteMode, replacementName?: string) => Promise<boolean>
     sync: () => Promise<number>
     usage: (type: TagType) => Promise<Record<string, number>>
+  }
+  float: {
+    dragStart: () => void
+    dragMove: () => void
+    dragEnd: () => void
+    toggleMenu: () => Promise<void>
+    setMode: (mode: 'menu' | 'result') => Promise<void>
+    hide: () => void
+    getEnabled: () => Promise<boolean>
+    setEnabled: (enabled: boolean) => Promise<{ ok: boolean }>
+    onBusy: (cb: (busy: boolean) => void) => () => void
+    onMode: (cb: (mode: 'menu' | 'result') => void) => () => void
+    onHidden: (cb: () => void) => () => void
+    presented: () => void
+  }
+  ocr: {
+    capture: () => Promise<OcrLine[] | null>
+    cloudConfig: () => Promise<{ configured: boolean; model: string }>
+    cloudTest: () => Promise<{ ok: boolean; message: string }>
+    overlayInit: (
+      displayId: string
+    ) => Promise<{
+      dataUrl: string
+      scaleFactor: number
+      pixels: { width: number; height: number } | null
+    } | null>
+    overlayRecognize: (png: ArrayBuffer) => Promise<{ ok: boolean }>
+    overlayCancel: () => Promise<{ ok: boolean }>
+    copyText: (text: string) => Promise<{ ok: boolean }>
   }
   util: {
     uuid: () => string

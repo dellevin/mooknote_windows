@@ -1,8 +1,24 @@
-// MookNote 数据库 schema —— 与 Flutter 版 database_helper.dart v53 的最终表结构一致。
-// 仅在全新库上 CREATE TABLE IF NOT EXISTS；若用户放入 Android 的 mooknote.db，表已存在，不改动。
+// MookNote 数据库 schema —— 与 Flutter 版 database_helper.dart v55 的最终表结构一致。
+// 全新库直接建成最新结构；已有库通过 MIGRATIONS 逐版本 ALTER TABLE 补列。
 // 列名一律 snake_case，List 字段存 JSON TEXT，bool 存 INTEGER 0/1，时间为 UTC ISO8601 字符串。
 
-export const SCHEMA_VERSION = 53
+export const SCHEMA_VERSION = 55
+
+// 逐版本增量迁移：对既有库执行 ALTER TABLE（执行前会用 PRAGMA table_info 判列，可重复安全运行）。
+export const MIGRATIONS: { version: number; table: string; column: string; ddl: string }[] = [
+  {
+    version: 54,
+    table: 'books',
+    column: 'read_duration',
+    ddl: 'ALTER TABLE books ADD COLUMN read_duration INTEGER DEFAULT 0'
+  },
+  {
+    version: 55,
+    table: 'movie_episodes',
+    column: 'duration',
+    ddl: 'ALTER TABLE movie_episodes ADD COLUMN duration INTEGER DEFAULT 0'
+  }
+]
 
 export const SCHEMA_STATEMENTS: string[] = [
   // ---------- 影视 ----------
@@ -55,6 +71,7 @@ export const SCHEMA_STATEMENTS: string[] = [
     movie_id TEXT NOT NULL,
     episode_no INTEGER NOT NULL DEFAULT 0,
     title TEXT DEFAULT '',
+    duration INTEGER DEFAULT 0,
     watched INTEGER DEFAULT 0,
     watch_date TEXT,
     rating REAL,
@@ -85,6 +102,7 @@ export const SCHEMA_STATEMENTS: string[] = [
     start_date TEXT,
     finish_date TEXT,
     read_count INTEGER DEFAULT 0,
+    read_duration INTEGER DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     is_deleted INTEGER DEFAULT 0,

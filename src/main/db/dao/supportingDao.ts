@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
 import { getDb } from '../index'
 import { parseStringList, encodeList, numOrNull, strOrNull } from '../util'
@@ -172,6 +173,7 @@ class ProgressDao {
       rating: numOrNull(r['rating']),
       review: (r['review'] as string) ?? '',
       images: parseStringList(r['images']),
+      ...(kind === 'episode' ? { duration: Number(r['duration']) || 0 } : {}),
       createdAt: r['created_at'] as string,
       updatedAt: r['updated_at'] as string
     }))
@@ -180,17 +182,21 @@ class ProgressDao {
   private write(kind: ProgressKind, e: ProgressEntry, isNew: boolean): void {
     const { table, fk, noCol, doneCol, dateCol } = PROG_CFG[kind]
     const now = new Date().toISOString()
+    // 仅分集表有 duration 列
+    const durCol = kind === 'episode' ? ',duration' : ''
+    const durVal = kind === 'episode' ? ',@duration' : ''
     if (isNew) {
       this.db()
         .prepare(
-          `INSERT INTO ${table} (id,${fk},${noCol},title,${doneCol},${dateCol},rating,review,images,is_deleted,created_at,updated_at)
-           VALUES (@id,@parent,@no,@title,@done,@date,@rating,@review,@images,0,@created_at,@updated_at)`
+          `INSERT INTO ${table} (id,${fk},${noCol},title${durCol},${doneCol},${dateCol},rating,review,images,is_deleted,created_at,updated_at)
+           VALUES (@id,@parent,@no,@title${durVal},@done,@date,@rating,@review,@images,0,@created_at,@updated_at)`
         )
         .run({
           id: e.id,
           parent: e.parentId,
           no: e.no,
           title: e.title,
+          ...(kind === 'episode' ? { duration: e.duration ?? 0 } : {}),
           done: e.done ? 1 : 0,
           date: strOrNull(e.date),
           rating: numOrNull(e.rating),
@@ -200,15 +206,17 @@ class ProgressDao {
           updated_at: now
         })
     } else {
+      const durSet = kind === 'episode' ? ',duration=@duration' : ''
       this.db()
         .prepare(
-          `UPDATE ${table} SET ${noCol}=@no,title=@title,${doneCol}=@done,${dateCol}=@date,
+          `UPDATE ${table} SET ${noCol}=@no,title=@title${durSet},${doneCol}=@done,${dateCol}=@date,
             rating=@rating,review=@review,images=@images,updated_at=@updated_at WHERE id=@id`
         )
         .run({
           id: e.id,
           no: e.no,
           title: e.title,
+          ...(kind === 'episode' ? { duration: e.duration ?? 0 } : {}),
           done: e.done ? 1 : 0,
           date: strOrNull(e.date),
           rating: numOrNull(e.rating),
@@ -247,6 +255,36 @@ class ProgressDao {
     const { table } = PROG_CFG[kind]
     this.db().prepare(`DELETE FROM ${table} WHERE id=?`).run(id)
     return pid
+  }
+
+  // 批量生成：从 startNo 起连续生成 count 条空白（未完成）记录，已存在的序号跳过。返回新增条数
+  batchGenerate(kind: ProgressKind, parentId: string, startNo: number, count: number): number {
+    const { table, fk, noCol } = PROG_CFG[kind]
+    const existing = new Set(
+      (
+        this.db()
+          .prepare(`SELECT ${noCol} AS no FROM ${table} WHERE ${fk}=?`)
+          .all(parentId) as { no: number }[]
+      ).map((r) => r.no)
+    )
+    const now = new Date().toISOString()
+    const dur = kind === 'episode' ? ',duration' : ''
+    const durVal = kind === 'episode' ? ',0' : ''
+    const stmt = this.db().prepare(
+      `INSERT INTO ${table} (id,${fk},${noCol},title${dur},is_deleted,created_at,updated_at)
+       VALUES (?,?,?,?${durVal},0,?,?)`
+    )
+    let created = 0
+    const tx = this.db().transaction(() => {
+      for (let i = 0; i < count; i++) {
+        const no = startNo + i
+        if (existing.has(no)) continue
+        stmt.run(randomUUID(), parentId, no, '', now, now)
+        created++
+      }
+    })
+    tx()
+    return created
   }
 }
 export const progressDao = new ProgressDao()

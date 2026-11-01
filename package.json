@@ -27,7 +27,9 @@
       "package.json"
     ],
     "asarUnpack": [
-      "**/node_modules/better-sqlite3/**"
+      "**/node_modules/better-sqlite3/**",
+      "**/node_modules/sharp/**",
+      "**/node_modules/@img/**"
     ],
     "extraResources": [
       {

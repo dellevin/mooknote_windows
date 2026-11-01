@@ -32,6 +32,12 @@ const dialog = useDialog()
 const book = ref<Book | null>(null)
 const loading = ref(false)
 
+function formatDuration(mins: number): string {
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return h ? `${h}小时${m ? m + '分' : ''}` : `${m}分`
+}
+
 async function load(): Promise<void> {
   if (!props.id) return
   loading.value = true
@@ -127,6 +133,9 @@ const STATUS_TYPE: Record<string, 'info' | 'success' | 'warning' | 'default'> = 
                 <i>读完</i>{{ formatDate(book.finishDate) }}
               </span>
               <span v-if="book.readCount" class="chip"><i>读过</i>{{ book.readCount }} 次</span>
+              <span v-if="book.readDuration" class="chip">
+                <i>阅读时长</i>{{ formatDuration(book.readDuration) }}
+              </span>
               <span v-if="book.isbn" class="chip"><i>ISBN</i>{{ book.isbn }}</span>
             </div>
           </div>

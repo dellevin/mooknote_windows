@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   NButton,
   NEmpty,
@@ -10,14 +10,58 @@ import {
   NInput,
   NSpace,
   NPopconfirm,
-  useMessage
+  NCheckbox,
+  useMessage,
+  useDialog
 } from 'naive-ui'
 import type { BookExcerpt } from '@shared/types'
 
 const props = defineProps<{ bookId: string }>()
 const message = useMessage()
+const dialog = useDialog()
 const items = ref<BookExcerpt[]>([])
 const loading = ref(false)
+
+// 多选批量删除
+const selectMode = ref(false)
+const selectedIds = ref<Set<string>>(new Set())
+const allSelected = computed(
+  () => items.value.length > 0 && selectedIds.value.size === items.value.length
+)
+function enterSelect(): void {
+  selectMode.value = true
+  selectedIds.value = new Set()
+}
+function exitSelect(): void {
+  selectMode.value = false
+  selectedIds.value = new Set()
+}
+function toggleSelect(id: string): void {
+  const next = new Set(selectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedIds.value = next
+}
+function toggleSelectAll(): void {
+  selectedIds.value = allSelected.value
+    ? new Set()
+    : new Set(items.value.map((e: BookExcerpt) => e.id))
+}
+function batchRemove(): void {
+  const n = selectedIds.value.size
+  if (!n) return
+  dialog.warning({
+    title: '批量删除',
+    content: `确定删除选中的 ${n} 条摘抄吗？删除后不可恢复。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      await Promise.all([...selectedIds.value].map((id) => window.mook.excerpt.remove(id)))
+      exitSelect()
+      await load()
+    }
+  })
+}
 const editorShow = ref(false)
 const saving = ref(false)
 const editingId = ref<string | null>(null)
@@ -80,16 +124,47 @@ async function remove(e: BookExcerpt): Promise<void> {
   <div class="section">
     <div class="section-head">
       <span class="section-title">摘抄（{{ items.length }}）</span>
-      <NButton size="tiny" type="primary" ghost @click="openAdd">＋ 添加摘抄</NButton>
+      <NSpace :size="6">
+        <template v-if="selectMode">
+          <NButton size="tiny" quaternary @click="toggleSelectAll">
+            {{ allSelected ? '取消全选' : '全选' }}
+          </NButton>
+          <NButton
+            size="tiny"
+            type="error"
+            ghost
+            :disabled="!selectedIds.size"
+            @click="batchRemove"
+          >
+            删除<span v-if="selectedIds.size">（{{ selectedIds.size }}）</span>
+          </NButton>
+          <NButton size="tiny" quaternary @click="exitSelect">完成</NButton>
+        </template>
+        <template v-else>
+          <NButton size="tiny" quaternary :disabled="!items.length" @click="enterSelect">
+            多选
+          </NButton>
+          <NButton size="tiny" type="primary" ghost @click="openAdd">＋ 添加摘抄</NButton>
+        </template>
+      </NSpace>
     </div>
     <NSpin :show="loading">
       <NEmpty v-if="!items.length && !loading" description="还没有摘抄" size="small" />
       <div v-else class="list">
-        <div v-for="e in items" :key="e.id" class="excerpt">
+        <div
+          v-for="e in items"
+          :key="e.id"
+          class="excerpt"
+          :class="{ picked: selectMode && selectedIds.has(e.id) }"
+          @click="selectMode ? toggleSelect(e.id) : undefined"
+        >
+          <div v-if="selectMode" class="pick-row">
+            <NCheckbox :checked="selectedIds.has(e.id)" @click.stop @update:checked="() => toggleSelect(e.id)" />
+          </div>
           <div v-if="e.chapter" class="chapter">摘自《{{ e.chapter }}》</div>
           <p class="content">{{ e.content }}</p>
           <p v-if="e.comment" class="comment">感悟：{{ e.comment }}</p>
-          <div class="actions">
+          <div v-if="!selectMode" class="actions">
             <NButton size="tiny" quaternary @click="openEdit(e)">编辑</NButton>
             <NPopconfirm to="body" @positive-click="remove(e)">
               <template #trigger>
@@ -148,6 +223,15 @@ async function remove(e: BookExcerpt): Promise<void> {
   border-radius: 0 8px 8px 0;
   padding: 10px 14px;
   margin-bottom: 10px;
+}
+.excerpt.picked {
+  border-left-color: var(--accent, #2563eb);
+  background: color-mix(in srgb, var(--accent, #2563eb) 6%, #f8f9fd);
+}
+.pick-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
 }
 .chapter {
   font-size: 12px;

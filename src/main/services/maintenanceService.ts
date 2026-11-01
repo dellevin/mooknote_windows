@@ -4,6 +4,92 @@ import os from 'node:os'
 import { getDb } from '../db'
 import { getDataRoot, imagesRoot } from '../paths'
 import { prefs } from '../prefs'
+import { recordTombstone } from './sync/syncTombstones'
+import { touchParent } from './sync/touchParent'
+
+// 软删子组行物理清除后需 touch 仍存活的父行，使整组重推（与单条删除口径一致）
+const SOFT_GROUP_PARENTS: Record<string, { col: string; parent: string }> = {
+  movie_episodes: { col: 'movie_id', parent: 'movies' },
+  movie_posters: { col: 'movie_id', parent: 'movies' },
+  book_chapters: { col: 'book_id', parent: 'books' },
+  game_levels: { col: 'game_id', parent: 'games' },
+  game_screenshots: { col: 'game_id', parent: 'games' }
+}
+
+// 有外键子表的父实体：物理清除软删父行时，必须与各 DAO 的 permanentDelete
+// 同口径先删子行，否则直接 DELETE 父行会触发 FOREIGN KEY constraint failed。
+const PURGE_CASCADES: Array<{
+  parent: string
+  children: Array<[string, string]>
+  /** 媒体父表：同时清掉 playlist_items 中对该媒体的引用 */
+  playlistMedia?: boolean
+}> = [
+  {
+    parent: 'movies',
+    children: [
+      ['movie_reviews', 'movie_id'],
+      ['movie_posters', 'movie_id'],
+      ['movie_episodes', 'movie_id'],
+      ['movie_people', 'movie_id'],
+      ['movie_characters', 'movie_id']
+    ],
+    playlistMedia: true
+  },
+  {
+    parent: 'books',
+    children: [
+      ['book_reviews', 'book_id'],
+      ['book_excerpts', 'book_id'],
+      ['book_chapters', 'book_id'],
+      ['book_people', 'book_id'],
+      ['book_characters', 'book_id']
+    ],
+    playlistMedia: true
+  },
+  {
+    parent: 'games',
+    children: [
+      ['game_reviews', 'game_id'],
+      ['game_screenshots', 'game_id'],
+      ['game_completions', 'game_id'],
+      ['game_levels', 'game_id'],
+      ['game_people', 'game_id'],
+      ['game_characters', 'game_id']
+    ],
+    playlistMedia: true
+  },
+  {
+    parent: 'people',
+    children: [
+      ['movie_people', 'person_id'],
+      ['book_people', 'person_id'],
+      ['game_people', 'person_id']
+    ]
+  },
+  {
+    parent: 'playlists',
+    children: [['playlist_items', 'playlist_id']]
+  }
+]
+
+// 物理清除需落墓碑的行级同步实体（与各 DAO permanentDelete 口径一致），
+// 否则其他设备增量同步时这些行会被复活。
+const TOMBSTONE_TABLES = new Set([
+  'movies',
+  'books',
+  'games',
+  'people',
+  'notes',
+  'playlists',
+  'movie_reviews',
+  'book_reviews',
+  'game_reviews',
+  'book_excerpts',
+  'movie_characters',
+  'book_characters',
+  'game_characters',
+  'custom_module_items'
+])
 
 // 含单张图片路径字段的结构：[表名, 列名][]
 const SINGLE_IMAGE_COLS: Array<[string, string]> = [
@@ -332,19 +418,65 @@ export function purgeSoftDeleted(): { rows: number; tables: number } {
       .all() as { name: string }[]
   ).map((r) => r.name)
   let rows = 0
-  let tablesHit = 0
+  const tablesHit = new Set<string>()
   const tx = db.transaction(() => {
+    // 1) 有外键子表的父实体：按单条永久删除的同口径级联清除
+    for (const cfg of PURGE_CASCADES) {
+      if (!tableExists(cfg.parent) || !columnExists(cfg.parent, 'is_deleted')) continue
+      const ids = (
+        db.prepare(`SELECT id FROM ${cfg.parent} WHERE is_deleted = 1`).all() as { id: string }[]
+      ).map((r) => r.id)
+      if (!ids.length) continue
+      for (const id of ids) {
+        for (const [child, col] of cfg.children) {
+          if (!tableExists(child)) continue
+          const info = db.prepare(`DELETE FROM ${child} WHERE ${col} = ?`).run(id)
+          if (info.changes > 0) tablesHit.add(child)
+          rows += info.changes
+        }
+        if (cfg.playlistMedia && tableExists('playlist_items')) {
+          const info = db.prepare(`DELETE FROM playlist_items WHERE item_id = ?`).run(id)
+          if (info.changes > 0) tablesHit.add('playlist_items')
+          rows += info.changes
+        }
+        recordTombstone(cfg.parent, id)
+        db.prepare(`DELETE FROM ${cfg.parent} WHERE id = ?`).run(id)
+        tablesHit.add(cfg.parent)
+        rows++
+      }
+    }
+
+    // 2) 其余含 is_deleted 的表直接清扫（独立实体与已无父行的子表残留）
     for (const table of tables) {
       if (!columnExists(table, 'is_deleted')) continue
-      const info = db.prepare(`DELETE FROM ${table} WHERE is_deleted = 1`).run()
-      if (info.changes > 0) {
-        rows += info.changes
-        tablesHit++
+      if (TOMBSTONE_TABLES.has(table)) {
+        const ids = (
+          db.prepare(`SELECT id FROM ${table} WHERE is_deleted = 1`).all() as { id: string }[]
+        ).map((r) => r.id)
+        for (const id of ids) recordTombstone(table, id)
       }
+      // 子组行：记下仍存活的父行，清除后 touch 触发整组重推
+      const groupSpec = SOFT_GROUP_PARENTS[table]
+      let liveParents: string[] = []
+      if (groupSpec) {
+        liveParents = (
+          db
+            .prepare(
+              `SELECT DISTINCT g.${groupSpec.col} AS pid FROM ${table} g
+               JOIN ${groupSpec.parent} p ON p.id = g.${groupSpec.col}
+               WHERE g.is_deleted = 1 AND p.is_deleted = 0`
+            )
+            .all() as { pid: string }[]
+        ).map((r) => r.pid)
+      }
+      const info = db.prepare(`DELETE FROM ${table} WHERE is_deleted = 1`).run()
+      if (info.changes > 0) tablesHit.add(table)
+      rows += info.changes
+      for (const pid of liveParents) touchParent(groupSpec.parent, pid)
     }
   })
   tx()
-  return { rows, tables: tablesHit }
+  return { rows, tables: tablesHit.size }
 }
 
 /**

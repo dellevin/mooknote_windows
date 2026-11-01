@@ -124,21 +124,21 @@ class PlaylistDao {
   }
 
   softDelete(id: string): void {
-    const db = this.db()
-    db.transaction(() => {
-      // 与 Flutter 一致：软删片单时清空条目
-      db.prepare(`DELETE FROM playlist_items WHERE playlist_id=?`).run(id)
-      db.prepare(`UPDATE playlists SET is_deleted=1,item_count=0,updated_at=? WHERE id=?`).run(
-        new Date().toISOString(),
-        id
-      )
-    })()
+    // 与 Flutter 一致：软删片单只打标记，保留 playlist_items，恢复后条目仍在
+    this.db()
+      .prepare(`UPDATE playlists SET is_deleted=1,updated_at=? WHERE id=?`)
+      .run(new Date().toISOString(), id)
   }
 
   restore(id: string): void {
-    this.db()
-      .prepare(`UPDATE playlists SET is_deleted=0,updated_at=? WHERE id=?`)
-      .run(new Date().toISOString(), id)
+    const db = this.db()
+    db.transaction(() => {
+      db.prepare(`UPDATE playlists SET is_deleted=0,updated_at=? WHERE id=?`).run(
+        new Date().toISOString(),
+        id
+      )
+      this.refreshItemCount(db, id)
+    })()
   }
 
   permanentDelete(id: string): void {

@@ -1,7 +1,7 @@
 import BetterSqlite3 from 'better-sqlite3'
 import type { Database } from 'better-sqlite3'
 import { dbPath } from '../paths'
-import { SCHEMA_STATEMENTS, SCHEMA_VERSION } from './schema'
+import { SCHEMA_STATEMENTS, SCHEMA_VERSION, MIGRATIONS } from './schema'
 
 let db: Database | null = null
 
@@ -19,9 +19,8 @@ export function getDb(): Database {
   return db
 }
 
-// 全新库：直接建成 v53 最终结构。
-// 已有库（例如用户放入 Android 的 mooknote.db）：IF NOT EXISTS 只补齐缺失的索引，
-// 不改动既有表结构；跨版本迁移在阶段 7 备份恢复时再处理。
+// 全新库：CREATE TABLE 直接建成最新结构。
+// 已有库（旧版本库或用户放入的 Android mooknote.db）：按 MIGRATIONS 判列后 ALTER 补列，幂等可重复。
 function migrate(database: Database): void {
   const tx = database.transaction(() => {
     for (const stmt of SCHEMA_STATEMENTS) {
@@ -30,6 +29,14 @@ function migrate(database: Database): void {
     database.exec(
       `CREATE TABLE IF NOT EXISTS schema_info (key TEXT PRIMARY KEY, value TEXT)`
     )
+    for (const m of MIGRATIONS) {
+      const cols = database.prepare(`PRAGMA table_info(${m.table})`).all() as {
+        name: string
+      }[]
+      if (cols.length && !cols.some((c) => c.name === m.column)) {
+        database.exec(m.ddl)
+      }
+    }
     database.prepare(
       `INSERT INTO schema_info(key,value) VALUES('version',?)
        ON CONFLICT(key) DO UPDATE SET value=excluded.value`

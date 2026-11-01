@@ -259,8 +259,16 @@ export function registerIpc(): void {
   ipcMain.handle('prefs:get', (_e, key: string, fallback?: unknown) =>
     prefs.get(key, fallback)
   )
-  ipcMain.handle('prefs:set', (_e, key: string, value: unknown) => {
+  ipcMain.handle('prefs:set', (e, key: string, value: unknown) => {
     prefs.set(key, value)
+    // 皮肤/字体变更实时同步给所有窗口（含独立的悬浮球/面板窗），否则它们保持旧外观
+    if (key === 'uiSkin' || key === 'uiFont') {
+      for (const w of BrowserWindow.getAllWindows()) {
+        if (!w.isDestroyed() && w.webContents.id !== e.sender.id) {
+          w.webContents.send('ui:changed', key, value)
+        }
+      }
+    }
     return true
   })
 

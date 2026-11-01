@@ -4,8 +4,29 @@ import naive from 'naive-ui'
 import App from './App.vue'
 import router from './router'
 import './styles.css'
+import { applyFont } from './utils/theme'
 
-createApp(App).use(createPinia()).use(router).use(naive).mount('#app')
+// 独立窗口（悬浮球/面板/选区）也会加载本入口。必须在首帧渲染前把皮肤 data-skin 写上、
+// 字体栈应用好，否则悬浮球会先用默认外观画一帧再跳变。设置页改皮肤/字体后主进程会广播。
+async function bootstrap(): Promise<void> {
+  try {
+    const [skin, font] = await Promise.all([
+      window.mook.prefs.get<string>('uiSkin', 'default'),
+      window.mook.prefs.get<string>('uiFont', 'system')
+    ])
+    document.documentElement.dataset.skin = skin
+    applyFont(font)
+    window.mook.prefs.onUiChanged((key, value) => {
+      if (key === 'uiSkin') document.documentElement.dataset.skin = String(value)
+      else if (key === 'uiFont') applyFont(String(value))
+    })
+  } catch {
+    // prefs 不可用时回退默认外观
+  }
+  createApp(App).use(createPinia()).use(router).use(naive).mount('#app')
+}
+
+void bootstrap()
 
 // 本地图片加载失败（文件缺失/损坏）时，统一替换为灰色占位图，避免出现裂图图标
 const BROKEN_IMG_PLACEHOLDER =

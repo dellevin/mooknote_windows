@@ -79,6 +79,7 @@ export function vipToBook(o: Record<string, unknown>, id: string, status: BookIn
     startDate: null,
     finishDate: null,
     readCount: 0,
+    readDuration: 0,
     coverOffset: 0
   }
 }
@@ -128,6 +129,7 @@ export function bgmToBook(d: BgmDetail, id: string, status: BookInput['status'])
     startDate: null,
     finishDate: null,
     readCount: 0,
+    readDuration: 0,
     coverOffset: 0
   }
 }

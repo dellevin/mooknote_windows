@@ -22,6 +22,7 @@ interface BookRow {
   start_date: string | null
   finish_date: string | null
   read_count: number
+  read_duration: number
   created_at: string
   updated_at: string
   is_deleted: number
@@ -47,6 +48,7 @@ function rowToBook(r: BookRow): Book {
     startDate: r.start_date,
     finishDate: r.finish_date,
     readCount: r.read_count ?? 0,
+    readDuration: r.read_duration ?? 0,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     isDeleted: r.is_deleted === 1,
@@ -108,11 +110,11 @@ class BookDao {
     this.db()
       .prepare(
         `INSERT INTO books (id,title,cover_path,authors,translators,alternate_titles,publisher,genres,
-          summary,rating,status,category,isbn,publish_date,start_date,finish_date,read_count,
+          summary,rating,status,category,isbn,publish_date,start_date,finish_date,read_count,read_duration,
           cover_offset,created_at,updated_at,is_deleted)
          VALUES (@id,@title,@cover_path,@authors,@translators,@alternate_titles,@publisher,@genres,
           @summary,@rating,@status,@category,@isbn,@publish_date,@start_date,@finish_date,@read_count,
-          @cover_offset,@created_at,@updated_at,0)`
+          @read_duration,@cover_offset,@created_at,@updated_at,0)`
       )
       .run({ ...this.toRow(b), created_at: now, updated_at: now })
     return this.getById(b.id)!
@@ -125,7 +127,7 @@ class BookDao {
           alternate_titles=@alternate_titles,publisher=@publisher,genres=@genres,summary=@summary,
           rating=@rating,status=@status,category=@category,isbn=@isbn,publish_date=@publish_date,
           start_date=@start_date,finish_date=@finish_date,read_count=@read_count,
-          cover_offset=@cover_offset,updated_at=@updated_at
+          read_duration=@read_duration,cover_offset=@cover_offset,updated_at=@updated_at
          WHERE id=@id`
       )
       .run({ ...this.toRow(b), updated_at: new Date().toISOString() })
@@ -151,6 +153,7 @@ class BookDao {
       start_date: strOrNull(b.startDate),
       finish_date: strOrNull(b.finishDate),
       read_count: b.readCount ?? 0,
+      read_duration: b.readDuration ?? 0,
       cover_offset: b.coverOffset ?? 0
     }
   }

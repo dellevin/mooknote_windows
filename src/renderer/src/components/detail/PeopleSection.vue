@@ -11,7 +11,9 @@ import {
   NInput,
   NSpace,
   NPopconfirm,
-  useMessage
+  NCheckbox,
+  useMessage,
+  useDialog
 } from 'naive-ui'
 import type {
   MediaKind,
@@ -28,6 +30,57 @@ import PersonDetailModal from '@/components/people/PersonDetailModal.vue'
 
 const props = defineProps<{ kind: MediaKind; parentId: string; title?: string }>()
 const message = useMessage()
+const dialog = useDialog()
+
+// 多选批量移除关联（只解除本作品的关联，不删除人物档案）
+const selectMode = ref(false)
+const selectedIds = ref<Set<string>>(new Set())
+const allSelected = computed(
+  () => links.value.length > 0 && selectedIds.value.size === links.value.length
+)
+function enterSelect(): void {
+  selectMode.value = true
+  selectedIds.value = new Set()
+}
+function exitSelect(): void {
+  selectMode.value = false
+  selectedIds.value = new Set()
+}
+function toggleSelect(id: string): void {
+  const next = new Set(selectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedIds.value = next
+}
+function toggleSelectAll(): void {
+  selectedIds.value = allSelected.value
+    ? new Set()
+    : new Set(links.value.map((l: PersonLinkWithPerson) => l.id))
+}
+function batchRemove(): void {
+  const n = selectedIds.value.size
+  if (!n) return
+  dialog.warning({
+    title: '批量移除',
+    content: `确定移除选中的 ${n} 个人物关联吗？仅解除与本作品的关联，不会删除人物档案。`,
+    positiveText: '移除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      const next = links.value
+        .filter((l: PersonLinkWithPerson) => !selectedIds.value.has(l.id))
+        .map((l: PersonLinkWithPerson) => ({
+          id: l.id,
+          workId: l.workId,
+          personId: l.personId,
+          roleType: l.roleType,
+          characterName: l.characterName,
+          sortOrder: l.sortOrder
+        }))
+      exitSelect()
+      await persist(next)
+    }
+  })
+}
 
 // ── 从 TMDB 一键导入演职人员（仅影视） ──
 const tmdbShow = ref(false)
@@ -250,17 +303,37 @@ async function onPersonCreated(p: Person): Promise<void> {
     <div class="section-head">
       <span class="section-title">人物（{{ links.length }}）</span>
       <NSpace :size="8">
-        <NButton
-          v-if="kind === 'movie'"
-          size="tiny"
-          type="info"
-          ghost
-          :loading="tmdbImporting"
-          @click="openTmdb"
-        >
-          从 TMDB 导入
-        </NButton>
-        <NButton size="tiny" type="primary" ghost @click="openPicker"> ＋ 关联人物 </NButton>
+        <template v-if="selectMode">
+          <NButton size="tiny" quaternary @click="toggleSelectAll">
+            {{ allSelected ? '取消全选' : '全选' }}
+          </NButton>
+          <NButton
+            size="tiny"
+            type="error"
+            ghost
+            :disabled="!selectedIds.size"
+            @click="batchRemove"
+          >
+            移除<span v-if="selectedIds.size">（{{ selectedIds.size }}）</span>
+          </NButton>
+          <NButton size="tiny" quaternary @click="exitSelect">完成</NButton>
+        </template>
+        <template v-else>
+          <NButton size="tiny" quaternary :disabled="!links.length" @click="enterSelect">
+            多选
+          </NButton>
+          <NButton
+            v-if="kind === 'movie'"
+            size="tiny"
+            type="info"
+            ghost
+            :loading="tmdbImporting"
+            @click="openTmdb"
+          >
+            从 TMDB 导入
+          </NButton>
+          <NButton size="tiny" type="primary" ghost @click="openPicker"> ＋ 关联人物 </NButton>
+        </template>
       </NSpace>
     </div>
     <NSpin :show="loading">
@@ -268,8 +341,21 @@ async function onPersonCreated(p: Person): Promise<void> {
       <div v-for="[role, list] in grouped" :key="role" class="role-group">
         <div class="role-label">{{ role }}</div>
         <div class="people-row">
-          <div v-for="l in list" :key="l.id" class="person-chip">
-            <button type="button" class="chip-open" @click="openDetail(l)">
+          <div
+            v-for="l in list"
+            :key="l.id"
+            class="person-chip"
+            :class="{ picked: selectMode && selectedIds.has(l.id) }"
+            @click="selectMode ? toggleSelect(l.id) : undefined"
+          >
+            <NCheckbox
+              v-if="selectMode"
+              class="chip-check"
+              :checked="selectedIds.has(l.id)"
+              @click.stop
+              @update:checked="() => toggleSelect(l.id)"
+            />
+            <button type="button" class="chip-open" @click="selectMode ? undefined : openDetail(l)">
               <span class="chip-avatar">
                 <img v-if="l.photoPath" :src="toImgUrl(l.photoPath)" />
                 <span v-else>{{ l.name.slice(0, 1) }}</span>
@@ -279,7 +365,7 @@ async function onPersonCreated(p: Person): Promise<void> {
                 <span v-if="l.characterName" class="chip-char">饰 {{ l.characterName }}</span>
               </span>
             </button>
-            <NPopconfirm to="body" @positive-click="remove(l)">
+            <NPopconfirm v-if="!selectMode" to="body" @positive-click="remove(l)">
               <template #trigger>
                 <NButton
                   size="tiny"
@@ -480,6 +566,14 @@ async function onPersonCreated(p: Person): Promise<void> {
   padding: 6px 10px;
   background: #f8f9fd;
   border-radius: 10px;
+  border: 1px solid transparent;
+}
+.person-chip.picked {
+  border-color: var(--accent, #2563eb);
+  background: color-mix(in srgb, var(--accent, #2563eb) 6%, #f8f9fd);
+}
+.chip-check {
+  flex-shrink: 0;
 }
 .chip-open {
   flex: 1;

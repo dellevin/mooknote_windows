@@ -82,6 +82,9 @@ textarea,
   --rail-handle: rgba(31, 35, 41, 0.12);
   --rail-avatar-fallback: #7d8698;
   --rail-avatar-bg: linear-gradient(135deg, #dfe4f2, #eef0f5);
+  /* 桌面悬浮球：简约白 = 白底黑字 */
+  --ball-bg: #ffffff;
+  --ball-ink: #1f2329;
 }
 
 /* 网易红：仅左侧边栏变红 */
@@ -101,6 +104,8 @@ textarea,
   --rail-handle: rgba(255, 255, 255, 0.28);
   --rail-avatar-fallback: #ffd2d2;
   --rail-avatar-bg: linear-gradient(135deg, #ff7a7a, #e02424);
+  --ball-bg: #ff3a3a;
+  --ball-ink: #ffffff;
 }
 
 /* 腾讯蓝：左侧边栏变蓝 */
@@ -120,6 +125,8 @@ textarea,
   --rail-handle: rgba(255, 255, 255, 0.28);
   --rail-avatar-fallback: #bcd2f5;
   --rail-avatar-bg: linear-gradient(135deg, #3f7ae6, #003fb0);
+  --ball-bg: #0052d9;
+  --ball-ink: #ffffff;
 }
 
 /* 酷炫黑：仅左侧边栏变深，主色为翡翠绿 */
@@ -139,6 +146,9 @@ textarea,
   --rail-handle: rgba(255, 255, 255, 0.2);
   --rail-avatar-fallback: #9a9aa8;
   --rail-avatar-bg: linear-gradient(135deg, #34343f, #262631);
+  /* 桌面悬浮球：深邃黑 = 黑底绿字 */
+  --ball-bg: #1a1a23;
+  --ball-ink: #00b578;
 }
 
 .app-titlebar {

@@ -759,6 +759,16 @@ async function pushChanges(
   const newImageMap: Record<string, string> = {}
   const pushCtx: MergeCtx = { counters, localWins, codec, remote, imageMap: {}, onProgress }
 
+  // 图片上传是异步的，必须在写 delta 前全部 await 完成——
+  // 否则首批 delta 序列化时 img 映射还是空，对端只收到行数据、下载不到图片
+  const imageJobs: Promise<void>[] = []
+  const imageQueued = new Set<string>()
+  const enqueueImage = (logical: string): void => {
+    if (imageQueued.has(logical)) return
+    imageQueued.add(logical)
+    imageJobs.push(pushImage(pushCtx, newImageMap, logical))
+  }
+
   const loadGroups = (parentId: string, spec: IncEntitySpec): GroupMap => {
     const result: GroupMap = {}
     for (const groupKey of Object.keys(spec.groups)) {
@@ -773,10 +783,10 @@ async function pushChanges(
       for (const r of rows) {
         const imgCol = groupImageColumn(groupKey)
         const abs = imgCol ? (r[imgCol] as string | undefined) : undefined
-        if (abs) pushImage(pushCtx, newImageMap, toLogical(abs))
+        if (abs) enqueueImage(toLogical(abs))
         if (gspec.imageJsonColumn) {
           for (const l of codec.logicalFromJsonList(r[gspec.imageJsonColumn] as string | undefined)) {
-            pushImage(pushCtx, newImageMap, l)
+            enqueueImage(l)
           }
         }
       }
@@ -788,7 +798,7 @@ async function pushChanges(
     const sep = key.indexOf('|')
     const spec = specOf(key.slice(0, sep))!
     const groups = loadGroups(String(row.id), spec)
-    for (const l of codec.referencedLogical(row, spec)) pushImage(pushCtx, newImageMap, l)
+    for (const l of codec.referencedLogical(row, spec)) enqueueImage(l)
     ops.push({
       t: spec.table,
       id: String(row.id),
@@ -833,7 +843,14 @@ async function pushChanges(
     ops.push({ t: t.entity_type, id: t.entity_id, ts: t.deleted_at, d: 1 })
   }
 
-  if (!ops.length) return
+  if (!ops.length) {
+    // 即使没有行变更，也要等图片任务落账（正常情况下图片都跟随行，这里仅作兜底）
+    await Promise.all(imageJobs)
+    return
+  }
+
+  // 等所有图片上传并写入映射后再序列化 delta
+  await Promise.all(imageJobs)
 
   // 分批写 delta（UUID 文件名，每批 ≤200，图片映射只随首批携带）
   const BATCH = 200

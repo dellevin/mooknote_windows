@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { NButton, NInput, NEmpty, NSpin, NTag, NSelect } from 'naive-ui'
+import {
+  NButton,
+  NInput,
+  NEmpty,
+  NSpin,
+  NTag,
+  NSelect,
+  NCheckbox,
+  useDialog
+} from 'naive-ui'
 
 type PersonSort = 'updated' | 'created' | 'name' | 'birth'
 import type { Person, MediaKind } from '@shared/types'
@@ -13,6 +22,50 @@ const people = ref<Person[]>([])
 const loading = ref(false)
 const keyword = ref('')
 const sortMode = ref<PersonSort>('updated')
+const dialog = useDialog()
+
+// 多选批量删除（移入回收站）
+const selectMode = ref(false)
+const selectedIds = ref<Set<string>>(new Set())
+const allSelected = computed(
+  () => people.value.length > 0 && selectedIds.value.size === people.value.length
+)
+function enterSelect(): void {
+  selectMode.value = true
+  selectedIds.value = new Set()
+}
+function exitSelect(): void {
+  selectMode.value = false
+  selectedIds.value = new Set()
+}
+function toggleSelect(id: string): void {
+  const next = new Set(selectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedIds.value = next
+}
+function toggleSelectAll(): void {
+  selectedIds.value = allSelected.value
+    ? new Set()
+    : new Set(people.value.map((p: Person) => p.id))
+}
+function batchDelete(): void {
+  const n = selectedIds.value.size
+  if (!n) return
+  dialog.warning({
+    title: '批量删除',
+    content: `确定将选中的 ${n} 位人物移入回收站吗？可在回收站恢复。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      await Promise.all(
+        [...selectedIds.value].map((id) => window.mook.person.softDelete(id))
+      )
+      exitSelect()
+      await load()
+    }
+  })
+}
 
 const sortOptions: { label: string; value: PersonSort }[] = [
   { label: '按更新时间', value: 'updated' },
@@ -105,6 +158,15 @@ function openWork(kind: MediaKind): void {
           @update:value="onSortChange"
         />
         <NButton size="small" :loading="loading" @click="load">刷新</NButton>
+        <NButton
+          v-if="!selectMode && people.length"
+          size="small"
+          type="primary"
+          ghost
+          @click="enterSelect"
+        >
+          多选
+        </NButton>
         <NButton size="small" type="primary" @click="openCreate">＋ 添加人物</NButton>
       </div>
     </div>
@@ -112,7 +174,20 @@ function openWork(kind: MediaKind): void {
     <NSpin :show="loading">
       <NEmpty v-if="!people.length && !loading" description="还没有人物档案" class="empty" />
       <div v-else class="grid">
-        <div v-for="p in visible" :key="p.id" class="person-card" @click="openCard(p)">
+        <div
+          v-for="p in visible"
+          :key="p.id"
+          class="person-card"
+          :class="{ picked: selectMode && selectedIds.has(p.id) }"
+          @click="selectMode ? toggleSelect(p.id) : openCard(p)"
+        >
+          <NCheckbox
+            v-if="selectMode"
+            class="pick-box"
+            :checked="selectedIds.has(p.id)"
+            @click.stop
+            @update:checked="() => toggleSelect(p.id)"
+          />
           <div class="avatar">
             <img v-if="p.photoPath" :src="toImgUrl(p.photoPath)" />
             <div v-else class="avatar-empty">{{ p.name.slice(0, 1) }}</div>
@@ -129,6 +204,25 @@ function openWork(kind: MediaKind): void {
         加载中…
       </div>
     </NSpin>
+
+    <Teleport to="body">
+      <div v-if="selectMode" class="select-bar">
+        <NButton size="small" quaternary @click="toggleSelectAll">
+          {{ allSelected ? '取消全选' : '全选' }}
+        </NButton>
+        <span class="sel-count">已选 {{ selectedIds.size }}</span>
+        <NButton
+          size="small"
+          type="error"
+          secondary
+          :disabled="!selectedIds.size"
+          @click="batchDelete"
+        >
+          删除
+        </NButton>
+        <NButton size="small" quaternary @click="exitSelect">取消</NButton>
+      </div>
+    </Teleport>
 
     <PersonFormModal
       v-model:show="formShow"
@@ -178,14 +272,26 @@ function openWork(kind: MediaKind): void {
   align-content: start;
 }
 .person-card {
+  position: relative;
   text-align: center;
   cursor: pointer;
   padding: 10px 6px;
   border-radius: 12px;
+  border: 2px solid transparent;
 }
 .person-card:hover {
   background: var(--surface);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+.person-card.picked {
+  border-color: var(--accent, #2563eb);
+  background: color-mix(in srgb, var(--accent, #2563eb) 5%, var(--surface));
+}
+.pick-box {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
 }
 .load-more {
   padding: 16px 0 8px;

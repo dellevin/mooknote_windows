@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   NButton,
   NEmpty,
@@ -11,15 +11,59 @@ import {
   NInput,
   NSpace,
   NPopconfirm,
-  useMessage
+  NCheckbox,
+  useMessage,
+  useDialog
 } from 'naive-ui'
 import type { GameCompletion } from '@shared/types'
 import { tsToIso, formatDate } from '@/utils/image'
 
 const props = defineProps<{ gameId: string }>()
 const message = useMessage()
+const dialog = useDialog()
 const items = ref<GameCompletion[]>([])
 const loading = ref(false)
+
+// 多选批量删除
+const selectMode = ref(false)
+const selectedIds = ref<Set<string>>(new Set())
+const allSelected = computed(
+  () => items.value.length > 0 && selectedIds.value.size === items.value.length
+)
+function enterSelect(): void {
+  selectMode.value = true
+  selectedIds.value = new Set()
+}
+function exitSelect(): void {
+  selectMode.value = false
+  selectedIds.value = new Set()
+}
+function toggleSelect(id: string): void {
+  const next = new Set(selectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedIds.value = next
+}
+function toggleSelectAll(): void {
+  selectedIds.value = allSelected.value
+    ? new Set()
+    : new Set(items.value.map((e: GameCompletion) => e.id))
+}
+function batchRemove(): void {
+  const n = selectedIds.value.size
+  if (!n) return
+  dialog.warning({
+    title: '批量删除',
+    content: `确定删除选中的 ${n} 条通关记录吗？删除后不可恢复。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      await Promise.all([...selectedIds.value].map((id) => window.mook.completion.remove(id)))
+      exitSelect()
+      await load()
+    }
+  })
+}
 const editorShow = ref(false)
 const saving = ref(false)
 const form = ref({ dateTs: Date.now(), note: '' })
@@ -74,17 +118,53 @@ async function remove(e: GameCompletion): Promise<void> {
   <div class="section">
     <div class="section-head">
       <span class="section-title">通关记录（{{ items.length }}）</span>
-      <NButton size="tiny" type="primary" ghost @click="openAdd">＋ 记录通关</NButton>
+      <NSpace :size="6">
+        <template v-if="selectMode">
+          <NButton size="tiny" quaternary @click="toggleSelectAll">
+            {{ allSelected ? '取消全选' : '全选' }}
+          </NButton>
+          <NButton
+            size="tiny"
+            type="error"
+            ghost
+            :disabled="!selectedIds.size"
+            @click="batchRemove"
+          >
+            删除<span v-if="selectedIds.size">（{{ selectedIds.size }}）</span>
+          </NButton>
+          <NButton size="tiny" quaternary @click="exitSelect">完成</NButton>
+        </template>
+        <template v-else>
+          <NButton size="tiny" quaternary :disabled="!items.length" @click="enterSelect">
+            多选
+          </NButton>
+          <NButton size="tiny" type="primary" ghost @click="openAdd">＋ 记录通关</NButton>
+        </template>
+      </NSpace>
     </div>
     <NSpin :show="loading">
       <NEmpty v-if="!items.length && !loading" description="还没有通关记录" size="small" />
       <div v-else class="list">
-        <div v-for="e in items" :key="e.id" class="row">
-          <div>
-            <span class="date">🏁 {{ formatDate(e.completionDate) }}</span>
-            <span v-if="e.note" class="note">{{ e.note }}</span>
+        <div
+          v-for="e in items"
+          :key="e.id"
+          class="row"
+          :class="{ picked: selectMode && selectedIds.has(e.id) }"
+          @click="selectMode ? toggleSelect(e.id) : undefined"
+        >
+          <div class="row-main">
+            <NCheckbox
+              v-if="selectMode"
+              :checked="selectedIds.has(e.id)"
+              @click.stop
+              @update:checked="() => toggleSelect(e.id)"
+            />
+            <div>
+              <span class="date">🏁 {{ formatDate(e.completionDate) }}</span>
+              <span v-if="e.note" class="note">{{ e.note }}</span>
+            </div>
           </div>
-          <NPopconfirm to="body" @positive-click="remove(e)">
+          <NPopconfirm v-if="!selectMode" to="body" @positive-click="remove(e)">
             <template #trigger>
               <NButton size="tiny" quaternary type="error">删除</NButton>
             </template>
@@ -134,6 +214,15 @@ async function remove(e: GameCompletion): Promise<void> {
   justify-content: space-between;
   padding: 10px 4px;
   border-bottom: 1px solid #f2f3f6;
+  border-radius: 8px;
+}
+.row.picked {
+  background: color-mix(in srgb, var(--accent, #2563eb) 6%, var(--surface));
+}
+.row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .date {
   font-weight: 600;

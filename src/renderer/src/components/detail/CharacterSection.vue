@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   NButton,
   NEmpty,
@@ -11,7 +11,9 @@ import {
   NSpace,
   NDynamicTags,
   NPopconfirm,
-  useMessage
+  NCheckbox,
+  useMessage,
+  useDialog
 } from 'naive-ui'
 import type {
   Character,
@@ -23,6 +25,50 @@ import { toImgUrl, remoteImg } from '@/utils/image'
 
 const props = defineProps<{ kind: CharacterKind; parentId: string; title?: string }>()
 const message = useMessage()
+const dialog = useDialog()
+
+// 多选批量删除
+const selectMode = ref(false)
+const selectedIds = ref<Set<string>>(new Set())
+const allSelected = computed(
+  () => items.value.length > 0 && selectedIds.value.size === items.value.length
+)
+function enterSelect(): void {
+  selectMode.value = true
+  selectedIds.value = new Set()
+}
+function exitSelect(): void {
+  selectMode.value = false
+  selectedIds.value = new Set()
+}
+function toggleSelect(id: string): void {
+  const next = new Set(selectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedIds.value = next
+}
+function toggleSelectAll(): void {
+  selectedIds.value = allSelected.value
+    ? new Set()
+    : new Set(items.value.map((c: Character) => c.id))
+}
+function batchRemove(): void {
+  const n = selectedIds.value.size
+  if (!n) return
+  dialog.warning({
+    title: '批量删除',
+    content: `确定删除选中的 ${n} 个角色吗？删除后不可恢复。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      await Promise.all(
+        [...selectedIds.value].map((id) => window.mook.character.remove(props.kind, id))
+      )
+      exitSelect()
+      await load()
+    }
+  })
+}
 
 // ── 从 TMDB 一键导入角色（仅影视） ──
 const tmdbShow = ref(false)
@@ -182,23 +228,56 @@ async function remove(c: Character): Promise<void> {
     <div class="section-head">
       <span class="section-title">角色（{{ items.length }}）</span>
       <NSpace :size="8">
-        <NButton
-          v-if="kind === 'movie'"
-          size="tiny"
-          type="info"
-          ghost
-          :loading="tmdbImporting"
-          @click="openTmdb"
-        >
-          从 TMDB 导入
-        </NButton>
-        <NButton size="tiny" type="primary" ghost @click="openAdd">＋ 添加角色</NButton>
+        <template v-if="selectMode">
+          <NButton size="tiny" quaternary @click="toggleSelectAll">
+            {{ allSelected ? '取消全选' : '全选' }}
+          </NButton>
+          <NButton
+            size="tiny"
+            type="error"
+            ghost
+            :disabled="!selectedIds.size"
+            @click="batchRemove"
+          >
+            删除<span v-if="selectedIds.size">（{{ selectedIds.size }}）</span>
+          </NButton>
+          <NButton size="tiny" quaternary @click="exitSelect">完成</NButton>
+        </template>
+        <template v-else>
+          <NButton size="tiny" quaternary :disabled="!items.length" @click="enterSelect">
+            多选
+          </NButton>
+          <NButton
+            v-if="kind === 'movie'"
+            size="tiny"
+            type="info"
+            ghost
+            :loading="tmdbImporting"
+            @click="openTmdb"
+          >
+            从 TMDB 导入
+          </NButton>
+          <NButton size="tiny" type="primary" ghost @click="openAdd">＋ 添加角色</NButton>
+        </template>
       </NSpace>
     </div>
     <NSpin :show="loading">
       <NEmpty v-if="!items.length && !loading" description="还没有角色记录" size="small" />
       <div v-else class="grid">
-        <div v-for="c in items" :key="c.id" class="char-card">
+        <div
+          v-for="c in items"
+          :key="c.id"
+          class="char-card"
+          :class="{ picked: selectMode && selectedIds.has(c.id) }"
+          @click="selectMode ? toggleSelect(c.id) : undefined"
+        >
+          <NCheckbox
+            v-if="selectMode"
+            class="pick-box"
+            :checked="selectedIds.has(c.id)"
+            @click.stop
+            @update:checked="() => toggleSelect(c.id)"
+          />
           <div class="char-img">
             <img v-if="c.imagePath" :src="toImgUrl(c.imagePath)" />
             <div v-else class="img-empty">{{ c.name.slice(0, 1) }}</div>
@@ -210,7 +289,7 @@ async function remove(c: Character): Promise<void> {
             </div>
             <div v-if="c.aliases.length" class="char-sub">别名：{{ c.aliases.join('、') }}</div>
             <div v-if="c.description" class="char-desc">{{ c.description }}</div>
-            <div class="char-actions">
+            <div v-if="!selectMode" class="char-actions">
               <NButton size="tiny" quaternary @click="openEdit(c)">编辑</NButton>
               <NPopconfirm to="body" @positive-click="remove(c)">
                 <template #trigger>
@@ -344,11 +423,23 @@ async function remove(c: Character): Promise<void> {
   gap: 10px;
 }
 .char-card {
+  position: relative;
   display: flex;
   gap: 12px;
   padding: 10px;
   background: #f8f9fd;
   border-radius: 10px;
+  border: 1px solid transparent;
+}
+.char-card.picked {
+  border-color: var(--accent, #2563eb);
+  background: color-mix(in srgb, var(--accent, #2563eb) 6%, #f8f9fd);
+}
+.pick-box {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
 }
 .char-img {
   flex: 0 0 64px;

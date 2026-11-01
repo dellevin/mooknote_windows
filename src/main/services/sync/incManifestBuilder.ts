@@ -1,8 +1,14 @@
 import fs from 'node:fs'
 import { getDb } from '../../db'
-import { GROUPS, ENTITIES, softDeleteGroupWhere, type IncEntitySpec } from './incEntities'
+import {
+  GROUPS,
+  ENTITIES,
+  softDeleteGroupWhere,
+  groupImageColumn,
+  type IncEntitySpec
+} from './incEntities'
 import type { ChunkIndex, Manifest, Row, TombstoneEntry } from './incProtocol'
-import { IncRowCodec } from './incRowCodec'
+import { IncRowCodec, toLogical } from './incRowCodec'
 import { IncRemote, sha256Hex } from './incRemote'
 
 // manifest 构建：首次基线与 compaction 共用（与 Flutter inc_manifest_builder.dart 一致）。
@@ -23,6 +29,18 @@ export async function buildManifestFromLocal(opts: BuildOptions): Promise<Manife
   const db = getDb()
   const chunks: Record<string, ChunkIndex[]> = {}
   const images: Record<string, string> = { ...imageMap }
+
+  const ensureImage = async (logical: string): Promise<void> => {
+    if (Object.prototype.hasOwnProperty.call(images, logical)) return
+    const file = codec.localPathOf(logical)
+    if (!fs.existsSync(file)) return
+    const bytes = fs.readFileSync(file)
+    const hash = sha256Hex(bytes)
+    if (!(await remote.putBlob(hash, bytes))) {
+      throw new Error(`图片上传失败: ${logical}`)
+    }
+    images[logical] = hash
+  }
 
   for (const spec of ENTITIES) {
     const rows = db.prepare(`SELECT * FROM ${spec.table}`).all() as Row[]
@@ -48,6 +66,21 @@ export async function buildManifestFromLocal(opts: BuildOptions): Promise<Manife
         const list = byTable.get(groupKey) ?? []
         list.push(gr)
         byTable.set(groupKey, list)
+      }
+      // 子组行内图片（海报墙/截图/分集章节关卡配图）也要进基线 img 映射，
+      // 否则重建基线后对端拿到子组行却下载不到图片
+      const imgCol = groupImageColumn(groupKey)
+      const jsonCol = gspec.imageJsonColumn
+      for (const gr of groupRows) {
+        if (imgCol) {
+          const v = gr[imgCol]
+          if (typeof v === 'string' && v) await ensureImage(toLogical(v))
+        }
+        if (jsonCol) {
+          for (const l of codec.logicalFromJsonList(gr[jsonCol] as string | undefined)) {
+            await ensureImage(l)
+          }
+        }
       }
     }
 
@@ -78,15 +111,7 @@ export async function buildManifestFromLocal(opts: BuildOptions): Promise<Manife
     // 现场扫描图片（首建基线）
     for (const row of rows) {
       for (const logical of codec.referencedLogical(row, spec)) {
-        if (Object.prototype.hasOwnProperty.call(images, logical)) continue
-        const file = codec.localPathOf(logical)
-        if (!fs.existsSync(file)) continue
-        const bytes = fs.readFileSync(file)
-        const hash = sha256Hex(bytes)
-        if (!(await remote.putBlob(hash, bytes))) {
-          throw new Error(`图片上传失败: ${logical}`)
-        }
-        images[logical] = hash
+        await ensureImage(logical)
       }
     }
   }

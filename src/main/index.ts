@@ -29,6 +29,8 @@ import { registerSearchIpc } from './ipc/search'
 import { registerBackupIpc } from './ipc/backup'
 import { registerTagIpc } from './ipc/tag'
 import { registerIncSyncIpc } from './ipc/incSync'
+import { registerOcrIpc } from './ipc/ocr'
+import { createBallWindow, registerFloatIpc } from './floatBall'
 import { downloadRemoteImage } from './services/onlineSearch'
 
 // 本地图片：mookimg:///<绝对路径>
@@ -231,6 +233,8 @@ app.whenReady().then(() => {
   registerBackupIpc()
   registerTagIpc()
   registerIncSyncIpc()
+  registerOcrIpc()
+  registerFloatIpc()
 
   // 渲染层关窗询问弹窗的决定回传
   ipcMain.on('win:close-decision', (_e, r: { quit?: unknown; remember?: unknown }) => {
@@ -295,6 +299,8 @@ app.whenReady().then(() => {
 
   const mainWin = createWindow()
   createTray(mainWin)
+  // 桌面悬浮球：独立置顶小窗，主窗口最小化到托盘后仍可用
+  createBallWindow()
 
   app.on('activate', () => {
     const win = BrowserWindow.getAllWindows()[0]

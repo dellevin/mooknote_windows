@@ -189,6 +189,9 @@ const navGroups = computed<NavGroup[]>(() => [
 // 进入/离开自定义页面后刷新侧边栏，保证新建/删除分类及时同步
 const route = useRoute()
 
+// 截屏选区等独立窗口只渲染路由页，不显示应用外壳
+const bareMode = computed(() => route.meta.bare === true)
+
 // 全局搜索悬浮按钮：仅在「内容」分组的页面显示（首页/影视/阅读/游戏/笔记/自定义模块）
 const showGlobalSearch = computed(() => {
   const p = route.path
@@ -330,7 +333,10 @@ function onRailPointerUp(): void {
   >
     <n-message-provider>
       <n-dialog-provider>
+        <!-- 独立透明窗口（截屏选区）：只渲染路由页，无标题栏/侧栏/悬浮球 -->
+        <router-view v-if="bareMode" />
         <div
+          v-else
           class="app-root"
           :class="`mat-${material}`"
         >
