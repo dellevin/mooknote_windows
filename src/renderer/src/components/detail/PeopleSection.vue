@@ -13,13 +13,118 @@ import {
   NPopconfirm,
   useMessage
 } from 'naive-ui'
-import type { MediaKind, Person, PersonLink, PersonLinkWithPerson } from '@shared/types'
+import type {
+  MediaKind,
+  Person,
+  PersonLink,
+  PersonLinkWithPerson,
+  TmdbCastEntry,
+  TmdbSearchItem
+} from '@shared/types'
 import { PERSON_ROLE_LABELS } from '@shared/types'
-import { toImgUrl, plain } from '@/utils/image'
+import { toImgUrl, remoteImg, plain } from '@/utils/image'
 import PersonFormModal from '@/components/people/PersonFormModal.vue'
+import PersonDetailModal from '@/components/people/PersonDetailModal.vue'
 
-const props = defineProps<{ kind: MediaKind; parentId: string }>()
+const props = defineProps<{ kind: MediaKind; parentId: string; title?: string }>()
 const message = useMessage()
+
+// ── 从 TMDB 一键导入演职人员（仅影视） ──
+const tmdbShow = ref(false)
+const tmdbKeyword = ref('')
+const tmdbResults = ref<TmdbSearchItem[]>([])
+const tmdbSearching = ref(false)
+const tmdbPicked = ref<TmdbSearchItem | null>(null)
+// step 1=选影片，2=重名合并确认
+const tmdbStep = ref<1 | 2>(1)
+const castEntries = ref<TmdbCastEntry[]>([])
+const peoplePool = ref<Person[]>([])
+const picks = ref<Record<number, string>>({})
+const tmdbPreviewing = ref(false)
+const tmdbImporting = ref(false)
+
+const ROLE_TAG: Record<string, string> = { director: '导演', writer: '编剧', actor: '演员' }
+
+async function runTmdbSearch(): Promise<void> {
+  const q = tmdbKeyword.value.trim()
+  if (!q) return
+  tmdbSearching.value = true
+  tmdbPicked.value = null
+  try {
+    const res = await window.mook.search.tmdbSearch(q, 1)
+    tmdbResults.value = res.results
+  } catch (e) {
+    message.error('TMDB 搜索失败：' + String(e))
+    tmdbResults.value = []
+  } finally {
+    tmdbSearching.value = false
+  }
+}
+
+async function openTmdb(): Promise<void> {
+  tmdbShow.value = true
+  tmdbStep.value = 1
+  tmdbKeyword.value = props.title ?? ''
+  tmdbResults.value = []
+  tmdbPicked.value = null
+  castEntries.value = []
+  picks.value = {}
+  if (tmdbKeyword.value.trim()) await runTmdbSearch()
+}
+
+// 选好影片 → 拉演职人员 + 本地人物池，同名默认合并
+async function previewCast(): Promise<void> {
+  if (!tmdbPicked.value) {
+    message.warning('请先在搜索结果中选择对应影片')
+    return
+  }
+  tmdbPreviewing.value = true
+  try {
+    const [entries, pool] = await Promise.all([
+      window.mook.person.tmdbCastPreview(tmdbPicked.value.id, tmdbPicked.value.mediaType),
+      window.mook.person.list()
+    ])
+    castEntries.value = entries
+    peoplePool.value = pool
+    const byName = new Map(pool.map((p) => [p.name, p.id]))
+    const next: Record<number, string> = {}
+    for (const e of entries) next[e.tmdbId] = byName.get(e.name) ?? 'new'
+    picks.value = next
+    tmdbStep.value = 2
+  } catch (e) {
+    message.error('获取演职人员失败：' + String(e))
+  } finally {
+    tmdbPreviewing.value = false
+  }
+}
+
+function setPick(tmdbId: number, v: string): void {
+  picks.value[tmdbId] = v
+}
+
+function mergeOptions(entry: TmdbCastEntry): { label: string; value: string }[] {
+  return [
+    { label: `新建人物：${entry.name}`, value: 'new' },
+    ...peoplePool.value.map((p) => ({ label: `合并到：${p.name}`, value: p.id }))
+  ]
+}
+
+async function confirmTmdbImport(): Promise<void> {
+  tmdbImporting.value = true
+  try {
+    // IPC 结构化克隆不能传 Vue 响应式 Proxy，先转成纯对象
+    const entries = JSON.parse(JSON.stringify(castEntries.value)) as TmdbCastEntry[]
+    const choice = JSON.parse(JSON.stringify(picks.value)) as Record<string, string>
+    const r = await window.mook.person.importTmdbCast(props.parentId, entries, choice)
+    message.success(`导入完成：新建 ${r.created} 人，关联 ${r.linked} 条，跳过已存在 ${r.skipped} 条`)
+    tmdbShow.value = false
+    await load()
+  } catch (e) {
+    message.error('导入失败：' + String(e))
+  } finally {
+    tmdbImporting.value = false
+  }
+}
 
 const links = ref<PersonLinkWithPerson[]>([])
 const loading = ref(false)
@@ -29,6 +134,13 @@ const removingId = ref<string | null>(null)
 const people = ref<Person[]>([])
 const formRef = ref({ role: '', personId: null as string | null, characterName: '' })
 const createShow = ref(false)
+const detailShow = ref(false)
+const detailId = ref<string | null>(null)
+
+function openDetail(l: PersonLinkWithPerson): void {
+  detailId.value = l.personId
+  detailShow.value = true
+}
 
 const roleOptions = computed(() =>
   Object.entries(PERSON_ROLE_LABELS[props.kind]).map(([value, label]) => ({ label, value }))
@@ -137,7 +249,19 @@ async function onPersonCreated(p: Person): Promise<void> {
   <div class="section">
     <div class="section-head">
       <span class="section-title">人物（{{ links.length }}）</span>
-      <NButton size="tiny" type="primary" ghost @click="openPicker"> ＋ 关联人物 </NButton>
+      <NSpace :size="8">
+        <NButton
+          v-if="kind === 'movie'"
+          size="tiny"
+          type="info"
+          ghost
+          :loading="tmdbImporting"
+          @click="openTmdb"
+        >
+          从 TMDB 导入
+        </NButton>
+        <NButton size="tiny" type="primary" ghost @click="openPicker"> ＋ 关联人物 </NButton>
+      </NSpace>
     </div>
     <NSpin :show="loading">
       <NEmpty v-if="!links.length && !loading" description="还没有关联人物" size="small" />
@@ -145,14 +269,16 @@ async function onPersonCreated(p: Person): Promise<void> {
         <div class="role-label">{{ role }}</div>
         <div class="people-row">
           <div v-for="l in list" :key="l.id" class="person-chip">
-            <div class="chip-avatar">
-              <img v-if="l.photoPath" :src="toImgUrl(l.photoPath)" />
-              <span v-else>{{ l.name.slice(0, 1) }}</span>
-            </div>
-            <div class="chip-info">
-              <span class="chip-name">{{ l.name }}</span>
-              <span v-if="l.characterName" class="chip-char">饰 {{ l.characterName }}</span>
-            </div>
+            <button type="button" class="chip-open" @click="openDetail(l)">
+              <span class="chip-avatar">
+                <img v-if="l.photoPath" :src="toImgUrl(l.photoPath)" />
+                <span v-else>{{ l.name.slice(0, 1) }}</span>
+              </span>
+              <span class="chip-info">
+                <span class="chip-name">{{ l.name }}</span>
+                <span v-if="l.characterName" class="chip-char">饰 {{ l.characterName }}</span>
+              </span>
+            </button>
             <NPopconfirm to="body" @positive-click="remove(l)">
               <template #trigger>
                 <NButton
@@ -203,7 +329,122 @@ async function onPersonCreated(p: Person): Promise<void> {
       </div>
     </NModal>
 
+    <NModal v-model:show="tmdbShow" :auto-focus="false">
+      <div class="picker tmdb-picker">
+        <h3>从 TMDB 导入演职人员</h3>
+        <NSpace class="full" align="center">
+          <NInput
+            v-model:value="tmdbKeyword"
+            placeholder="搜索影片标题"
+            clearable
+            @keyup.enter="runTmdbSearch"
+          />
+          <NButton type="primary" :loading="tmdbSearching" @click="runTmdbSearch">搜索</NButton>
+        </NSpace>
+        <template v-if="tmdbStep === 1">
+          <p class="tmdb-hint">先搜索并选中对应的影片，下一步确认重名处理方式。</p>
+          <div class="tmdb-results">
+            <NSpin :show="tmdbSearching">
+              <div v-if="!tmdbSearching && !tmdbResults.length" class="tmdb-empty">暂无结果</div>
+              <button
+                v-for="r in tmdbResults"
+                :key="r.mediaType + r.id"
+                type="button"
+                class="tmdb-item"
+                :class="{ on: tmdbPicked?.id === r.id && tmdbPicked.mediaType === r.mediaType }"
+                @click="tmdbPicked = r"
+              >
+                <img
+                v-if="r.posterUrl"
+                :src="remoteImg(r.posterUrl, 'tmdb')"
+                class="tmdb-poster"
+                loading="lazy"
+              />
+                <span v-else class="tmdb-poster tmdb-poster-empty">{{ r.title.slice(0, 1) }}</span>
+                <span class="tmdb-meta">
+                  <span class="tmdb-name">{{ r.title }}</span>
+                  <span class="tmdb-sub">
+                    {{ r.mediaType === 'tv' ? '剧集' : '电影' }}<template v-if="r.date">
+                      · {{ r.date.slice(0, 4) }}</template
+                    >
+                  </span>
+                </span>
+              </button>
+            </NSpin>
+          </div>
+          <div class="picker-footer">
+            <NSpace justify="end">
+              <NButton @click="tmdbShow = false">取消</NButton>
+              <NButton
+                type="primary"
+                :loading="tmdbPreviewing"
+                :disabled="!tmdbPicked"
+                @click="previewCast"
+              >
+                下一步
+              </NButton>
+            </NSpace>
+          </div>
+        </template>
+
+        <template v-else>
+          <p class="tmdb-hint">
+            共 {{ castEntries.length }} 位演职人员。与人物库同名的可选择「合并到」已有人物，或新建。
+          </p>
+          <div class="tmdb-results cast-list">
+            <NSpin :show="tmdbPreviewing">
+              <div v-for="e in castEntries" :key="e.tmdbId" class="cast-row">
+                <img
+                  v-if="e.profileUrl"
+                  :src="remoteImg(e.profileUrl, 'tmdb')"
+                  class="cast-avatar"
+                  loading="lazy"
+                />
+                <span v-else class="cast-avatar cast-avatar-empty">{{ e.name.slice(0, 1) }}</span>
+                <span class="cast-meta">
+                  <span class="cast-name">{{ e.name }}</span>
+                  <span class="cast-parts">
+                    <span v-for="p in e.parts" :key="p.role + (p.character ?? '')" class="cast-tag">
+                      {{ ROLE_TAG[p.role] }}<template v-if="p.character">·饰 {{ p.character }}</template>
+                    </span>
+                  </span>
+                </span>
+                <NSelect
+                  :value="picks[e.tmdbId]"
+                  :options="mergeOptions(e)"
+                  size="small"
+                  class="cast-pick"
+                  :consistent-menu-width="false"
+                  filterable
+                  @update:value="(v) => setPick(e.tmdbId, v)"
+                />
+              </div>
+            </NSpin>
+          </div>
+          <div class="picker-footer">
+            <NSpace justify="end">
+              <NButton :disabled="tmdbImporting" @click="tmdbStep = 1">上一步</NButton>
+              <NButton
+                type="primary"
+                :loading="tmdbImporting"
+                @click="confirmTmdbImport"
+              >
+                导入
+              </NButton>
+            </NSpace>
+          </div>
+        </template>
+      </div>
+    </NModal>
+
     <PersonFormModal v-model:show="createShow" :person="null" @saved="onPersonCreated" />
+
+    <PersonDetailModal
+      v-model:show="detailShow"
+      :id="detailId"
+      @changed="load"
+      @open-work="() => (detailShow = false)"
+    />
   </div>
 </template>
 
@@ -239,6 +480,21 @@ async function onPersonCreated(p: Person): Promise<void> {
   padding: 6px 10px;
   background: #f8f9fd;
   border-radius: 10px;
+}
+.chip-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.chip-open:hover .chip-name {
+  color: var(--accent, #2563eb);
 }
 .chip-avatar {
   width: 38px;
@@ -292,5 +548,142 @@ async function onPersonCreated(p: Person): Promise<void> {
 }
 .picker-footer {
   margin-top: 8px;
+}
+
+/* TMDB 导入选择 */
+.tmdb-hint {
+  margin: 10px 0 8px;
+  font-size: 12px;
+  color: #8a909c;
+}
+.tmdb-results {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 10px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tmdb-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: #a8adb8;
+}
+.tmdb-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.tmdb-item:hover {
+  background: #f5f6f8;
+}
+.tmdb-item.on {
+  background: #eef3ff;
+  border-color: var(--accent, #2563eb);
+}
+.tmdb-poster {
+  width: 32px;
+  height: 44px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #f0f1f4;
+}
+.tmdb-poster-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #b6bcc6;
+}
+.tmdb-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tmdb-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tmdb-sub {
+  font-size: 11.5px;
+  color: #8a909c;
+}
+
+/* 第二步：重名合并确认 */
+.cast-list {
+  max-height: 380px;
+}
+.cast-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+.cast-row + .cast-row {
+  border-top: 1px solid rgba(17, 17, 17, 0.05);
+}
+.cast-avatar {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #e2e5ee;
+}
+.cast-avatar-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #9aa0ac;
+}
+.cast-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cast-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cast-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.cast-tag {
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(17, 17, 17, 0.06);
+  color: #5b616c;
+}
+.cast-pick {
+  flex-shrink: 0;
+  width: 150px;
 }
 </style>

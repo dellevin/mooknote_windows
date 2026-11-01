@@ -13,11 +13,70 @@ import {
   NPopconfirm,
   useMessage
 } from 'naive-ui'
-import type { Character, CharacterInput, CharacterKind } from '@shared/types'
-import { toImgUrl } from '@/utils/image'
+import type {
+  Character,
+  CharacterInput,
+  CharacterKind,
+  TmdbSearchItem
+} from '@shared/types'
+import { toImgUrl, remoteImg } from '@/utils/image'
 
-const props = defineProps<{ kind: CharacterKind; parentId: string }>()
+const props = defineProps<{ kind: CharacterKind; parentId: string; title?: string }>()
 const message = useMessage()
+
+// ── 从 TMDB 一键导入角色（仅影视） ──
+const tmdbShow = ref(false)
+const tmdbKeyword = ref('')
+const tmdbResults = ref<TmdbSearchItem[]>([])
+const tmdbSearching = ref(false)
+const tmdbPicked = ref<TmdbSearchItem | null>(null)
+const tmdbImporting = ref(false)
+
+async function runTmdbSearch(): Promise<void> {
+  const q = tmdbKeyword.value.trim()
+  if (!q) return
+  tmdbSearching.value = true
+  tmdbPicked.value = null
+  try {
+    const res = await window.mook.search.tmdbSearch(q, 1)
+    tmdbResults.value = res.results
+  } catch (e) {
+    message.error('TMDB 搜索失败：' + String(e))
+    tmdbResults.value = []
+  } finally {
+    tmdbSearching.value = false
+  }
+}
+
+async function openTmdb(): Promise<void> {
+  tmdbShow.value = true
+  tmdbKeyword.value = props.title ?? ''
+  tmdbResults.value = []
+  tmdbPicked.value = null
+  if (tmdbKeyword.value.trim()) await runTmdbSearch()
+}
+
+async function confirmTmdbImport(): Promise<void> {
+  if (!tmdbPicked.value) {
+    message.warning('请先在搜索结果中选择对应影片')
+    return
+  }
+  tmdbImporting.value = true
+  try {
+    const r = await window.mook.character.importTmdb(
+      props.parentId,
+      tmdbPicked.value.id,
+      tmdbPicked.value.mediaType
+    )
+    message.success(`导入完成：新增 ${r.created} 个角色，跳过已存在 ${r.skipped} 个`)
+    tmdbShow.value = false
+    await load()
+  } catch (e) {
+    message.error('导入失败：' + String(e))
+  } finally {
+    tmdbImporting.value = false
+  }
+}
 
 const items = ref<Character[]>([])
 const loading = ref(false)
@@ -122,7 +181,19 @@ async function remove(c: Character): Promise<void> {
   <div class="section">
     <div class="section-head">
       <span class="section-title">角色（{{ items.length }}）</span>
-      <NButton size="tiny" type="primary" ghost @click="openAdd">＋ 添加角色</NButton>
+      <NSpace :size="8">
+        <NButton
+          v-if="kind === 'movie'"
+          size="tiny"
+          type="info"
+          ghost
+          :loading="tmdbImporting"
+          @click="openTmdb"
+        >
+          从 TMDB 导入
+        </NButton>
+        <NButton size="tiny" type="primary" ghost @click="openAdd">＋ 添加角色</NButton>
+      </NSpace>
     </div>
     <NSpin :show="loading">
       <NEmpty v-if="!items.length && !loading" description="还没有角色记录" size="small" />
@@ -190,6 +261,64 @@ async function remove(c: Character): Promise<void> {
           <NSpace justify="end">
             <NButton @click="editorShow = false">取消</NButton>
             <NButton type="primary" :loading="saving" @click="save">保存</NButton>
+          </NSpace>
+        </div>
+      </div>
+    </NModal>
+
+    <NModal v-model:show="tmdbShow" :auto-focus="false">
+      <div class="editor tmdb-picker">
+        <h3>从 TMDB 导入角色</h3>
+        <NSpace class="full" align="center">
+          <NInput
+            v-model:value="tmdbKeyword"
+            placeholder="搜索影片标题"
+            clearable
+            @keyup.enter="runTmdbSearch"
+          />
+          <NButton type="primary" :loading="tmdbSearching" @click="runTmdbSearch">搜索</NButton>
+        </NSpace>
+        <p class="tmdb-hint">先搜索并选中对应的影片，再一键导入该片演员饰演的角色名。</p>
+        <div class="tmdb-results">
+          <NSpin :show="tmdbSearching">
+            <div v-if="!tmdbSearching && !tmdbResults.length" class="tmdb-empty">暂无结果</div>
+            <button
+              v-for="r in tmdbResults"
+              :key="r.mediaType + r.id"
+              type="button"
+              class="tmdb-item"
+              :class="{ on: tmdbPicked?.id === r.id && tmdbPicked.mediaType === r.mediaType }"
+              @click="tmdbPicked = r"
+            >
+              <img
+                v-if="r.posterUrl"
+                :src="remoteImg(r.posterUrl, 'tmdb')"
+                class="tmdb-poster"
+                loading="lazy"
+              />
+              <span v-else class="tmdb-poster tmdb-poster-empty">{{ r.title.slice(0, 1) }}</span>
+              <span class="tmdb-meta">
+                <span class="tmdb-name">{{ r.title }}</span>
+                <span class="tmdb-sub">
+                  {{ r.mediaType === 'tv' ? '剧集' : '电影' }}<template v-if="r.date">
+                    · {{ r.date.slice(0, 4) }}</template
+                  >
+                </span>
+              </span>
+            </button>
+          </NSpin>
+        </div>
+        <div class="editor-footer">
+          <NSpace justify="end">
+            <NButton @click="tmdbShow = false">取消</NButton>
+            <NButton
+              type="primary"
+              :loading="tmdbImporting"
+              :disabled="!tmdbPicked"
+              @click="confirmTmdbImport"
+            >
+              导入
+            </NButton>
           </NSpace>
         </div>
       </div>
@@ -316,5 +445,86 @@ async function remove(c: Character): Promise<void> {
 }
 .editor-footer {
   margin-top: 8px;
+}
+.full {
+  width: 100%;
+}
+
+/* TMDB 导入选择 */
+.tmdb-picker {
+  width: 480px;
+}
+.tmdb-hint {
+  margin: 10px 0 8px;
+  font-size: 12px;
+  color: #8a909c;
+}
+.tmdb-results {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 10px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tmdb-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: #a8adb8;
+}
+.tmdb-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.tmdb-item:hover {
+  background: #f5f6f8;
+}
+.tmdb-item.on {
+  background: #eef3ff;
+  border-color: var(--accent, #2563eb);
+}
+.tmdb-poster {
+  width: 32px;
+  height: 44px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #f0f1f4;
+}
+.tmdb-poster-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #b6bcc6;
+}
+.tmdb-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tmdb-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tmdb-sub {
+  font-size: 11.5px;
+  color: #8a909c;
 }
 </style>

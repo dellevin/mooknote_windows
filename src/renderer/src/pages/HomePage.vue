@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { NSpin } from 'naive-ui'
 import type {
   StatsOverview,
@@ -129,21 +130,33 @@ const longestStreak = computed(() => {
   return best
 })
 
-// ── 热力图格子悬停：查看当天条目 ──
+// ── 热力图格子悬停 / 点击：查看当天条目 ──
+type DayKind = 'movie' | 'book' | 'game' | 'person' | 'note'
 interface DayItem {
-  kind: string
+  kind: DayKind
+  id: string
   title: string
+  cover: string | null
 }
-const KIND_LABEL: Record<string, string> = {
+const KIND_LABEL: Record<DayKind, string> = {
   movie: '影视',
   book: '书籍',
   game: '游戏',
   person: '人物',
   note: '笔记'
 }
+// 底部分类跳转：只显示当天出现过的分类（人物归入…无列表页，不提供跳转）
+const KIND_ROUTE: Partial<Record<DayKind, { label: string; to: string }>> = {
+  movie: { label: '影视', to: '/movies' },
+  book: { label: '阅读', to: '/books' },
+  game: { label: '游戏', to: '/games' },
+  note: { label: '笔记', to: '/notes' }
+}
 const dayCache = new Map<string, DayItem[]>()
 const tip = ref<{ x: number; y: number; date: string; items: DayItem[] | null } | null>(null)
+const pinned = ref<{ date: string; items: DayItem[] | null } | null>(null)
 let tipSeq = 0
+const router = useRouter()
 
 function fmtDay(date: string): string {
   const [y, m, d] = date.split('-').map(Number)
@@ -158,16 +171,26 @@ const tipPos = computed(() => {
   return { left: left + 'px', top: top + 'px', width: w + 'px' }
 })
 
+async function loadDay(date: string): Promise<DayItem[]> {
+  const cached = dayCache.get(date)
+  if (cached) return cached
+  const items = (await window.mook.stats.dayItems(date)).map((r) => ({
+    ...r,
+    kind: r.kind as DayKind
+  }))
+  dayCache.set(date, items)
+  return items
+}
+
 async function onCellEnter(e: MouseEvent, c: Cell): Promise<void> {
-  if (!c.count) {
+  if (!c.count || pinned.value) {
     tip.value = null
     return
   }
   tip.value = { x: e.clientX, y: e.clientY, date: c.date, items: dayCache.get(c.date) ?? null }
   if (!dayCache.has(c.date)) {
     const seq = ++tipSeq
-    const items = await window.mook.stats.dayItems(c.date)
-    dayCache.set(c.date, items)
+    const items = await loadDay(c.date)
     if (seq === tipSeq && tip.value?.date === c.date) {
       tip.value = { ...tip.value, items }
     }
@@ -179,6 +202,40 @@ function onCellMove(e: MouseEvent): void {
 function onCellLeave(): void {
   tipSeq++
   tip.value = null
+}
+
+// 点击格子：常驻面板。优先用缓存，否则先展示加载态
+async function onCellClick(c: Cell): Promise<void> {
+  if (!c.count) return
+  onCellLeave()
+  pinned.value = { date: c.date, items: dayCache.get(c.date) ?? null }
+  if (!dayCache.has(c.date)) {
+    pinned.value = { ...pinned.value, items: await loadDay(c.date) }
+  }
+}
+function closePinned(): void {
+  pinned.value = null
+}
+
+// 常驻面板里点条目：影视/书籍/游戏打开详情；人物/笔记暂无首页详情，不处理
+function openDayItem(it: DayItem): void {
+  if (it.kind === 'movie' || it.kind === 'book' || it.kind === 'game') {
+    detailKind.value = it.kind
+    detailId.value = it.id
+    detailShow.value = true
+  }
+}
+
+const pinnedLinks = computed(() => {
+  const kinds = new Set<DayKind>(pinned.value?.items?.map((i: DayItem) => i.kind) ?? [])
+  return (Object.keys(KIND_ROUTE) as DayKind[])
+    .filter((k) => kinds.has(k))
+    .map((k) => KIND_ROUTE[k]!)
+})
+
+function goKind(to: string): void {
+  closePinned()
+  void router.push(to)
 }
 
 function kindRows(key: 'movies' | 'books' | 'games'): StatusCount[] {
@@ -272,6 +329,7 @@ onMounted(async () => {
                   @mouseenter="c && onCellEnter($event, c)"
                   @mousemove="onCellMove"
                   @mouseleave="onCellLeave"
+                  @click="c && onCellClick(c)"
                 ></div>
               </div>
             </div>
@@ -360,7 +418,7 @@ onMounted(async () => {
       </div>
     </NSpin>
 
-    <!-- 热力图当天条目浮层（跟随鼠标） -->
+    <!-- 热力图当天条目浮层（跟随鼠标，轻量预览） -->
     <Teleport to="body">
       <div v-if="tip" class="heat-tip" :style="tipPos">
         <div class="heat-tip-head">
@@ -370,17 +428,76 @@ onMounted(async () => {
         <div v-if="tip.items === null" class="heat-tip-loading">加载中…</div>
         <ul v-else-if="tip.items.length" class="heat-tip-list">
           <li v-for="(it, i) in tip.items.slice(0, 8)" :key="i">
-            <span class="heat-tip-kind" :class="'k-' + it.kind">{{
-              KIND_LABEL[it.kind] ?? it.kind
-            }}</span>
+            <img
+              v-if="it.cover"
+              :src="toImgUrl(it.cover)"
+              class="heat-tip-cover"
+              loading="lazy"
+            />
+            <span v-else class="heat-tip-cover heat-tip-cover-empty">
+              {{ it.title.slice(0, 1) }}
+            </span>
+            <span class="heat-tip-kind" :class="'k-' + it.kind">{{ KIND_LABEL[it.kind] }}</span>
             <span class="heat-tip-title">{{ it.title }}</span>
           </li>
           <li v-if="tip.items.length > 8" class="heat-tip-more">
-            等 {{ tip.items.length }} 条…
+            等 {{ tip.items.length }} 条，点击查看
           </li>
         </ul>
         <div v-else class="heat-tip-empty">当天没有记录</div>
       </div>
+
+      <!-- 点击格子后的常驻面板 -->
+      <transition name="day-pop">
+        <div v-if="pinned" class="day-mask" @click.self="closePinned">
+          <div class="day-panel">
+            <div class="day-head">
+              <div>
+                <div class="day-title">{{ fmtDay(pinned.date) }}</div>
+                <div class="day-count">{{ pinned.items?.length ?? 0 }} 条记录</div>
+              </div>
+              <button class="day-close" title="关闭" @click="closePinned">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div v-if="pinned.items === null" class="day-loading">加载中…</div>
+            <div v-else-if="!pinned.items.length" class="day-loading">当天没有记录</div>
+            <ul v-else class="day-list">
+              <li
+                v-for="it in pinned.items"
+                :key="it.kind + it.id"
+                class="day-row"
+                :class="{ clickable: it.kind === 'movie' || it.kind === 'book' || it.kind === 'game' }"
+                @click="openDayItem(it)"
+              >
+                <img v-if="it.cover" :src="toImgUrl(it.cover)" class="day-cover" loading="lazy" />
+                <span v-else class="day-cover day-cover-empty">{{ it.title.slice(0, 1) }}</span>
+                <span class="day-meta">
+                  <span class="day-kind" :class="'k-' + it.kind">{{ KIND_LABEL[it.kind] }}</span>
+                  <span class="day-name">{{ it.title }}</span>
+                </span>
+              </li>
+            </ul>
+
+            <div v-if="pinnedLinks.length" class="day-footer">
+              <button
+                v-for="link in pinnedLinks"
+                :key="link.to"
+                class="day-link"
+                @click="goKind(link.to)"
+              >
+                查看{{ link.label }}界面
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
     </Teleport>
 
     <MovieDetailModal v-if="detailKind === 'movie'" v-model:show="detailShow" :id="detailId" />
@@ -634,6 +751,21 @@ onMounted(async () => {
   align-items: center;
   gap: 7px;
 }
+.heat-tip-cover {
+  width: 22px;
+  height: 30px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.heat-tip-cover-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #9aa3ad;
+}
 .heat-tip-kind {
   flex-shrink: 0;
   font-size: 10.5px;
@@ -669,6 +801,176 @@ onMounted(async () => {
 .heat-tip-loading {
   color: #9aa3ad;
   padding: 2px 0;
+}
+
+/* 点击格子后的常驻面板 */
+.day-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 3200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 17, 17, 0.22);
+}
+.day-panel {
+  width: 380px;
+  max-width: calc(100vw - 40px);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  box-shadow: 0 12px 36px rgba(17, 17, 17, 0.2);
+  overflow: hidden;
+}
+.day-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+}
+.day-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-strong, #1f2329);
+}
+.day-count {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #8a909c;
+}
+.day-close {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #8a909c;
+  cursor: pointer;
+}
+.day-close:hover {
+  background: rgba(17, 17, 17, 0.06);
+  color: var(--text-strong, #1f2329);
+}
+.day-loading {
+  padding: 4px 16px 18px;
+  font-size: 13px;
+  color: #8a909c;
+}
+.day-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 10px;
+  overflow-y: auto;
+}
+.day-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 8px;
+}
+.day-row.clickable {
+  cursor: pointer;
+}
+.day-row.clickable:hover {
+  background: rgba(17, 17, 17, 0.05);
+}
+.day-cover {
+  width: 34px;
+  height: 46px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 5px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: #f0f1f4;
+}
+.day-cover-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  color: #b6bcc6;
+}
+.day-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.day-kind {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  color: #fff;
+}
+.day-kind.k-movie {
+  background: #3b82f6;
+}
+.day-kind.k-book {
+  background: #8b5cf6;
+}
+.day-kind.k-game {
+  background: #f59e0b;
+}
+.day-kind.k-person {
+  background: #14b8a6;
+}
+.day-kind.k-note {
+  background: #6b7280;
+}
+.day-name {
+  font-size: 13px;
+  color: var(--text-strong, #1f2329);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.day-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px 14px;
+  border-top: 1px solid rgba(17, 17, 17, 0.07);
+}
+.day-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: var(--text-strong, #1f2329);
+  background: rgba(17, 17, 17, 0.04);
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.day-link:hover {
+  background: rgba(17, 17, 17, 0.08);
+}
+.day-pop-enter-active,
+.day-pop-leave-active {
+  transition: opacity 0.15s ease;
+}
+.day-pop-enter-active .day-panel,
+.day-pop-leave-active .day-panel {
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.day-pop-enter-from,
+.day-pop-leave-to {
+  opacity: 0;
+}
+.day-pop-enter-from .day-panel,
+.day-pop-leave-to .day-panel {
+  transform: scale(0.96) translateY(6px);
 }
 
 .cards {

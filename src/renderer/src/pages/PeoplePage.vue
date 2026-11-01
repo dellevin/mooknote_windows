@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { NButton, NInput, NEmpty, NSpin, NTag } from 'naive-ui'
+import { NButton, NInput, NEmpty, NSpin, NTag, NSelect } from 'naive-ui'
+
+type PersonSort = 'updated' | 'created' | 'name' | 'birth'
 import type { Person, MediaKind } from '@shared/types'
 import { toImgUrl } from '@/utils/image'
 import { useInfiniteScroll } from '@/utils/infiniteScroll'
@@ -10,6 +12,21 @@ import PersonDetailModal from '@/components/people/PersonDetailModal.vue'
 const people = ref<Person[]>([])
 const loading = ref(false)
 const keyword = ref('')
+const sortMode = ref<PersonSort>('updated')
+
+const sortOptions: { label: string; value: PersonSort }[] = [
+  { label: '按更新时间', value: 'updated' },
+  { label: '按创建时间', value: 'created' },
+  { label: '按人名', value: 'name' },
+  { label: '按出生日期', value: 'birth' }
+]
+
+async function onSortChange(v: PersonSort): Promise<void> {
+  sortMode.value = v
+  await window.mook.prefs.set('peopleSortMode', v)
+  renderCount.value = PAGE
+  await load()
+}
 
 // 渲染窗口：人物已在内存，分批挂载卡片
 const PAGE = 60
@@ -37,12 +54,15 @@ const detailId = ref<string | null>(null)
 async function load(): Promise<void> {
   loading.value = true
   try {
-    people.value = await window.mook.person.list(keyword.value)
+    people.value = await window.mook.person.list(keyword.value, false, sortMode.value)
   } finally {
     loading.value = false
   }
 }
-onMounted(load)
+onMounted(async () => {
+  sortMode.value = await window.mook.prefs.get<PersonSort>('peopleSortMode', 'updated')
+  await load()
+})
 
 function openCreate(): void {
   editPerson.value = null
@@ -77,6 +97,14 @@ function openWork(kind: MediaKind): void {
           @update:value="() => load()"
           @keyup.enter="load"
         />
+        <NSelect
+          :value="sortMode"
+          :options="sortOptions"
+          size="small"
+          class="sort-select"
+          @update:value="onSortChange"
+        />
+        <NButton size="small" :loading="loading" @click="load">刷新</NButton>
         <NButton size="small" type="primary" @click="openCreate">＋ 添加人物</NButton>
       </div>
     </div>
@@ -139,6 +167,9 @@ function openWork(kind: MediaKind): void {
 }
 .search {
   width: 220px;
+}
+.sort-select {
+  width: 130px;
 }
 .grid {
   display: grid;

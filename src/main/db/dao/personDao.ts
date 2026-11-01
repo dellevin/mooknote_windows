@@ -50,7 +50,11 @@ class PersonDao {
     return getDb()
   }
 
-  list(keyword = '', includeDeleted = false): Person[] {
+  list(
+    keyword = '',
+    includeDeleted = false,
+    sort: 'updated' | 'created' | 'name' | 'birth' = 'updated'
+  ): Person[] {
     const where: string[] = []
     const params: unknown[] = []
     if (!includeDeleted) where.push('is_deleted=0')
@@ -59,9 +63,19 @@ class PersonDao {
       const like = `%${keyword.trim()}%`
       params.push(like, like)
     }
+    const orderBy =
+      sort === 'created'
+        ? 'created_at DESC'
+        : sort === 'birth'
+          ? `CASE WHEN birth_date IS NULL OR birth_date='' THEN 1 ELSE 0 END, birth_date ASC`
+          : 'updated_at DESC'
     const sql = `SELECT * FROM people ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-                 ORDER BY updated_at DESC`
-    return (this.db().prepare(sql).all(...params) as PersonRow[]).map(rowToPerson)
+                 ORDER BY ${orderBy}`
+    const list = (this.db().prepare(sql).all(...params) as PersonRow[]).map(rowToPerson)
+    if (sort === 'name') {
+      list.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'))
+    }
+    return list
   }
 
   getById(id: string, includeDeleted = true): Person | null {

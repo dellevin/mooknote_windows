@@ -10,10 +10,11 @@ import {
   NSelect,
   NDatePicker,
   NDynamicTags,
+  NSpin,
   useMessage
 } from 'naive-ui'
-import type { Person, PersonInput } from '@shared/types'
-import { toImgUrl, isoToTs, tsToIso, plain } from '@/utils/image'
+import type { Person, PersonInput, TmdbPersonSearchItem } from '@shared/types'
+import { toImgUrl, remoteImg, isoToTs, tsToIso, plain } from '@/utils/image'
 
 const props = defineProps<{ show: boolean; person: Person | null }>()
 const emit = defineEmits<{
@@ -42,6 +43,57 @@ const genderOptions = [
   { label: '女', value: 'female' },
   { label: '其他', value: 'other' }
 ]
+
+// ── 从 TMDB 拉取人物信息 ──
+const tmdbShow = ref(false)
+const tmdbKeyword = ref('')
+const tmdbResults = ref<TmdbPersonSearchItem[]>([])
+const tmdbSearching = ref(false)
+const tmdbFetching = ref<number | null>(null)
+
+async function openTmdb(): Promise<void> {
+  tmdbShow.value = true
+  tmdbKeyword.value = form.value.name || props.person?.name || ''
+  tmdbResults.value = []
+  if (tmdbKeyword.value.trim()) await runTmdbSearch()
+}
+
+async function runTmdbSearch(): Promise<void> {
+  const q = tmdbKeyword.value.trim()
+  if (!q) return
+  tmdbSearching.value = true
+  try {
+    tmdbResults.value = await window.mook.person.tmdbSearchPeople(q)
+  } catch (e) {
+    message.error('TMDB 搜索失败：' + String(e))
+    tmdbResults.value = []
+  } finally {
+    tmdbSearching.value = false
+  }
+}
+
+// 只补空字段，已有内容不覆盖
+async function pickTmdbPerson(item: TmdbPersonSearchItem): Promise<void> {
+  tmdbFetching.value = item.id
+  try {
+    const info = await window.mook.person.tmdbFetchPerson(item.id, form.value.id)
+    const f = form.value
+    if (!f.name.trim()) f.name = info.name
+    if (!f.gender && info.gender) f.gender = info.gender
+    if (!f.birthTs && info.birthDate) f.birthTs = isoToTs(info.birthDate)
+    if (!f.birthPlace.trim() && info.birthPlace) f.birthPlace = info.birthPlace
+    if (!f.alternateNames.length) f.alternateNames = [...info.alternateNames]
+    if (!f.occupation.length) f.occupation = [...info.occupation]
+    if (!f.summary.trim() && info.summary) f.summary = info.summary
+    if (!f.photoPath && info.photoPath) f.photoPath = info.photoPath
+    tmdbShow.value = false
+    message.success('已从 TMDB 填充空白信息')
+  } catch (e) {
+    message.error('获取人物信息失败：' + String(e))
+  } finally {
+    tmdbFetching.value = null
+  }
+}
 
 watch(
   () => props.show,
@@ -120,9 +172,16 @@ async function save(): Promise<void> {
 </script>
 
 <template>
-  <NModal :show="show" @update:show="(v: boolean) => emit('update:show', v)" :auto-focus="false">
+  <NModal
+    :show="show"
+    @update:show="(v) => emit('update:show', v)"
+    :auto-focus="false"
+  >
     <div class="editor">
-      <h3>{{ props.person ? '编辑人物' : '新建人物' }}</h3>
+      <div class="head-row">
+        <h3>{{ props.person ? '编辑人物' : '新建人物' }}</h3>
+        <NButton size="tiny" type="info" ghost @click="openTmdb">从 TMDB 获取</NButton>
+      </div>
       <NForm label-placement="top" size="small">
         <div class="photo-row">
           <div class="photo">
@@ -172,6 +231,53 @@ async function save(): Promise<void> {
       </div>
     </div>
   </NModal>
+
+  <NModal v-model:show="tmdbShow" :auto-focus="false">
+      <div class="tmdb-editor">
+        <h3>从 TMDB 获取人物信息</h3>
+        <NSpace class="full" align="center">
+          <NInput
+            v-model:value="tmdbKeyword"
+            placeholder="搜索人物姓名"
+            clearable
+            @keyup.enter="runTmdbSearch"
+          />
+          <NButton type="primary" :loading="tmdbSearching" @click="runTmdbSearch">搜索</NButton>
+        </NSpace>
+        <p class="tmdb-hint">选择对应人物后，仅填充当前表单中为空的字段，已有内容保留。</p>
+        <div class="tmdb-results">
+          <NSpin :show="tmdbSearching">
+            <div v-if="!tmdbSearching && !tmdbResults.length" class="tmdb-empty">暂无结果</div>
+            <button
+              v-for="r in tmdbResults"
+              :key="r.id"
+              type="button"
+              class="tmdb-item"
+              :disabled="tmdbFetching !== null"
+              @click="pickTmdbPerson(r)"
+            >
+              <img
+                v-if="r.profileUrl"
+                :src="remoteImg(r.profileUrl, 'tmdb')"
+                class="tmdb-avatar"
+                loading="lazy"
+              />
+              <span v-else class="tmdb-avatar tmdb-avatar-empty">{{ r.name.slice(0, 1) }}</span>
+              <span class="tmdb-meta">
+                <span class="tmdb-name">{{ r.name }}</span>
+                <span v-if="r.knownFor" class="tmdb-sub">代表作：{{ r.knownFor }}</span>
+              </span>
+              <span v-if="tmdbFetching === r.id" class="tmdb-loading">获取中…</span>
+            </button>
+          </NSpin>
+        </div>
+        <div class="editor-footer">
+          <NSpace justify="end">
+            <NButton @click="tmdbShow = false">取消</NButton>
+          </NSpace>
+        </div>
+      </div>
+    </NModal>
 </template>
 
 <style scoped>
@@ -185,6 +291,107 @@ async function save(): Promise<void> {
 .editor h3 {
   font-size: 16px;
   margin-bottom: 14px;
+}
+.head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.head-row h3 {
+  margin-bottom: 14px;
+}
+
+/* TMDB 人物选择 */
+.tmdb-editor {
+  width: 480px;
+  max-width: 92vw;
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 20px 24px;
+}
+.tmdb-editor h3 {
+  font-size: 16px;
+  margin-bottom: 14px;
+}
+.full {
+  width: 100%;
+}
+.tmdb-hint {
+  margin: 10px 0 8px;
+  font-size: 12px;
+  color: #8a909c;
+}
+.tmdb-results {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 10px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tmdb-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: #a8adb8;
+}
+.tmdb-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.tmdb-item:hover:not(:disabled) {
+  background: #f5f6f8;
+}
+.tmdb-item:disabled {
+  cursor: default;
+}
+.tmdb-avatar {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #e2e5ee;
+}
+.tmdb-avatar-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  color: #9aa0ac;
+}
+.tmdb-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tmdb-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.tmdb-sub {
+  font-size: 11.5px;
+  color: #8a909c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tmdb-loading {
+  font-size: 12px;
+  color: var(--accent, #2563eb);
 }
 .photo-row {
   display: flex;

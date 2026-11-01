@@ -109,7 +109,15 @@ export function registerIpc(): void {
   })
 
   // 在线查看表数据：返回列名、主键列与前 N 行
-  ipcMain.handle('db:rows', (_e, table: string, limit = 100, offset = 0) => {
+  ipcMain.handle(
+    'db:rows',
+    (
+      _e,
+      table: string,
+      limit = 100,
+      offset = 0,
+      search?: { column: string; keyword: string }
+    ) => {
     if (!/^[a-z_]+$/.test(table)) throw new Error('非法表名')
     const db = getDb()
     const max = Math.min(Math.max(Number(limit) || 100, 1), 500)
@@ -123,9 +131,20 @@ export function registerIpc(): void {
     }[]
     const columns = info.map((c) => c.name)
     const primaryKeys = info.filter((c) => c.pk > 0).map((c) => c.name)
+    // 按字段搜索：列名白名单校验后，CAST 成文本做 LIKE 模糊匹配
+    let where = ''
+    const params: unknown[] = []
+    const kw = search?.keyword?.trim()
+    if (kw && search.column && columns.includes(search.column)) {
+      where = ' WHERE CAST("' + search.column + '" AS TEXT) LIKE ?'
+      params.push(`%${kw}%`)
+    }
+    const orderBy = primaryKeys.length
+      ? `ORDER BY ${primaryKeys.map((k) => `"${k}"`).join(', ')}`
+      : 'ORDER BY rowid'
     const rows = db
-      .prepare(`SELECT * FROM ${table} LIMIT ${max} OFFSET ${off}`)
-      .all() as Record<string, unknown>[]
+      .prepare(`SELECT * FROM ${table}${where} ${orderBy} LIMIT ${max} OFFSET ${off}`)
+      .all(...params) as Record<string, unknown>[]
     return {
       columns,
       primaryKeys,
@@ -137,9 +156,14 @@ export function registerIpc(): void {
         pk: c.pk
       })),
       rows,
-      total: (db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get() as { c: number }).c
+      total: (
+        db
+          .prepare(`SELECT COUNT(*) AS c FROM ${table}${where}`)
+          .get(...params) as { c: number }
+      ).c
     }
-  })
+  }
+  )
 
   // 插入一行：字段名白名单校验，值以字符串传入（空串视为 NULL），SQLite 按列亲和性转换
   ipcMain.handle(

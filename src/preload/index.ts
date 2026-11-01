@@ -42,6 +42,9 @@ import type {
   HomeStats,
   TmdbSearchItem,
   TmdbDetail,
+  TmdbCastEntry,
+  TmdbPersonSearchItem,
+  TmdbPersonInfo,
   BgmSearchItem,
   BgmDetail,
   WebDavConfig,
@@ -89,7 +92,8 @@ const api = {
     rows: (
       table: string,
       limit?: number,
-      offset?: number
+      offset?: number,
+      search?: { column: string; keyword: string }
     ): Promise<{
       columns: string[]
       primaryKeys: string[]
@@ -102,7 +106,7 @@ const api = {
       }[]
       rows: Record<string, unknown>[]
       total: number
-    }> => ipcRenderer.invoke('db:rows', table, limit),
+    }> => ipcRenderer.invoke('db:rows', table, limit, offset, search),
     insert: (
       table: string,
       values: Record<string, string | null>
@@ -215,8 +219,11 @@ const api = {
   },
   // 人物
   person: {
-    list: (keyword?: string, includeDeleted?: boolean): Promise<Person[]> =>
-      ipcRenderer.invoke('person:list', keyword, includeDeleted),
+    list: (
+      keyword?: string,
+      includeDeleted?: boolean,
+      sort?: 'updated' | 'created' | 'name' | 'birth'
+    ): Promise<Person[]> => ipcRenderer.invoke('person:list', keyword, includeDeleted, sort),
     get: (id: string): Promise<Person | null> => ipcRenderer.invoke('person:get', id),
     names: (): Promise<string[]> => ipcRenderer.invoke('person:names'),
     create: (input: PersonInput): Promise<Person> =>
@@ -228,7 +235,22 @@ const api = {
     purge: (id: string): Promise<boolean> => ipcRenderer.invoke('person:purge', id),
     newId: (): Promise<string> => ipcRenderer.invoke('person:new-id'),
     pickPhoto: (personId: string): Promise<string | null> =>
-      ipcRenderer.invoke('person:pick-photo', personId)
+      ipcRenderer.invoke('person:pick-photo', personId),
+    tmdbCastPreview: (
+      tmdbId: number,
+      mediaType: 'movie' | 'tv'
+    ): Promise<TmdbCastEntry[]> =>
+      ipcRenderer.invoke('person:tmdb-cast-preview', tmdbId, mediaType),
+    importTmdbCast: (
+      movieId: string,
+      entries: TmdbCastEntry[],
+      picks: Record<string, string>
+    ): Promise<{ created: number; linked: number; skipped: number }> =>
+      ipcRenderer.invoke('person:import-tmdb-cast', movieId, entries, picks),
+    tmdbSearchPeople: (query: string): Promise<TmdbPersonSearchItem[]> =>
+      ipcRenderer.invoke('person:tmdb-search-people', query),
+    tmdbFetchPerson: (tmdbId: number, localPersonId: string): Promise<TmdbPersonInfo> =>
+      ipcRenderer.invoke('person:tmdb-fetch-person', tmdbId, localPersonId)
   },
   personLink: {
     byWork: (kind: MediaKind, workId: string): Promise<PersonLinkWithPerson[]> =>
@@ -247,7 +269,13 @@ const api = {
       ipcRenderer.invoke('character:delete', kind, id),
     newId: (): Promise<string> => ipcRenderer.invoke('character:new-id'),
     pickImage: (characterId: string): Promise<string | null> =>
-      ipcRenderer.invoke('character:pick-image', characterId)
+      ipcRenderer.invoke('character:pick-image', characterId),
+    importTmdb: (
+      movieId: string,
+      tmdbId: number,
+      mediaType: 'movie' | 'tv'
+    ): Promise<{ created: number; skipped: number }> =>
+      ipcRenderer.invoke('character:import-tmdb', movieId, tmdbId, mediaType)
   },
   // 片单
   playlist: {
@@ -349,7 +377,9 @@ const api = {
       ipcRenderer.invoke('stats:calendar', mode),
     gallery: (): Promise<GalleryImage[]> => ipcRenderer.invoke('stats:gallery'),
     home: (): Promise<HomeStats> => ipcRenderer.invoke('stats:home'),
-    dayItems: (day: string): Promise<{ kind: string; title: string }[]> =>
+    dayItems: (
+      day: string
+    ): Promise<{ kind: string; id: string; title: string; cover: string | null }[]> =>
       ipcRenderer.invoke('stats:day-items', day)
   },
   excel: {

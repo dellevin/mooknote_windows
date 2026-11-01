@@ -183,11 +183,21 @@ const STATUS_TYPE: Record<string, 'info' | 'success' | 'warning'> = {
             </NTabPane>
 
             <NTabPane name="people" tab="人物">
-              <PeopleSection :key="'pp-' + movie.id" kind="movie" :parent-id="movie.id" />
+              <PeopleSection
+                :key="'pp-' + movie.id"
+                kind="movie"
+                :parent-id="movie.id"
+                :title="movie.title"
+              />
             </NTabPane>
 
             <NTabPane name="characters" tab="角色">
-              <CharacterSection :key="'ch-' + movie.id" kind="movie" :parent-id="movie.id" />
+              <CharacterSection
+                :key="'ch-' + movie.id"
+                kind="movie"
+                :parent-id="movie.id"
+                :title="movie.title"
+              />
             </NTabPane>
           </NTabs>
         </div>

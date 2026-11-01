@@ -254,7 +254,7 @@ class StatsDao {
   }
 
   // 某一天（本地日期 YYYY-MM-DD）新创建的条目，供首页热力图悬停查看
-  dayItems(day: string): { kind: string; title: string }[] {
+  dayItems(day: string): { kind: string; id: string; title: string; cover: string | null }[] {
     const db = this.db()
     const start = new Date(`${day}T00:00:00`)
     const end = new Date(start)
@@ -265,27 +265,33 @@ class StatsDao {
     const query = (
       kind: string,
       table: string,
-      titleExpr: string
-    ): { kind: string; title: string }[] => {
+      titleExpr: string,
+      coverExpr: string
+    ): { kind: string; id: string; title: string; cover: string | null }[] => {
       const rows = db
         .prepare(
-          `SELECT ${titleExpr} AS title FROM ${table}
+          `SELECT id, ${titleExpr} AS title, ${coverExpr} AS cover FROM ${table}
              WHERE is_deleted=0 AND created_at IS NOT NULL
                AND created_at >= ? AND created_at < ?
              ORDER BY created_at`
         )
-        .all(startIso, endIso) as { title: string | null }[]
+        .all(startIso, endIso) as { id: string; title: string | null; cover: string | null }[]
       return rows
-        .map((r) => ({ kind, title: (r.title ?? '').trim() }))
+        .map((r) => ({
+          kind,
+          id: r.id,
+          title: (r.title ?? '').trim(),
+          cover: r.cover?.trim() || null
+        }))
         .filter((r) => r.title)
     }
 
     return [
-      ...query('movie', 'movies', 'title'),
-      ...query('book', 'books', 'title'),
-      ...query('game', 'games', 'title'),
-      ...query('person', 'people', 'name'),
-      ...query('note', 'notes', "COALESCE(NULLIF(title, ''), substr(replace(content, char(10), ' '), 1, 30))")
+      ...query('movie', 'movies', 'title', 'poster_path'),
+      ...query('book', 'books', 'title', 'cover_path'),
+      ...query('game', 'games', 'title', 'cover_path'),
+      ...query('person', 'people', 'name', 'photo_path'),
+      ...query('note', 'notes', "COALESCE(NULLIF(title, ''), substr(replace(content, char(10), ' '), 1, 30))", "NULL")
     ]
   }
 

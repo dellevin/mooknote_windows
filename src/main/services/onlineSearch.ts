@@ -4,7 +4,11 @@ import type {
   BgmDetail,
   BgmInfoboxItem,
   BgmSearchItem,
+  TmdbCastPerson,
+  TmdbCredits,
   TmdbDetail,
+  TmdbPersonInfo,
+  TmdbPersonSearchItem,
   TmdbSearchItem
 } from '../../shared/types'
 
@@ -178,6 +182,81 @@ export async function tmdbDetail(id: number, mediaType: 'movie' | 'tv'): Promise
     runtime,
     tagline: data.tagline ?? '',
     status: data.status ?? ''
+  }
+}
+
+// 拉取演职人员：cast=演员（含角色名），crew=主创（导演/编剧等）
+export async function tmdbCredits(
+  id: number,
+  mediaType: 'movie' | 'tv'
+): Promise<TmdbCredits> {
+  applyProxy(prefs.get('tmdbProxy', ''))
+  const data = await tmdbGet(`/${mediaType}/${id}/credits`)
+  const cast: TmdbCastPerson[] = (data.cast ?? []).map((c: any) => ({
+    tmdbId: c.id,
+    name: c.name ?? '',
+    character: c.character ? String(c.character) : null,
+    job: null,
+    profileUrl: c.profile_path ? TMDB_IMG + c.profile_path : null,
+    order: typeof c.order === 'number' ? c.order : 9999
+  }))
+  const crew: TmdbCastPerson[] = (data.crew ?? [])
+    .filter((c: any) => c.job === 'Director' || c.job === 'Screenplay' || c.job === 'Writer')
+    .map((c: any) => ({
+      tmdbId: c.id,
+      name: c.name ?? '',
+      character: null,
+      job: c.job ?? null,
+      profileUrl: c.profile_path ? TMDB_IMG + c.profile_path : null,
+      order: typeof c.order === 'number' ? c.order : 9999
+    }))
+  return { cast, crew }
+}
+
+// 搜索人物（/search/person）
+export async function tmdbPersonSearch(query: string): Promise<TmdbPersonSearchItem[]> {
+  applyProxy(prefs.get('tmdbProxy', ''))
+  const data = await tmdbGet('/search/person', { query, include_adult: 'false' })
+  return (data.results ?? []).map((p: any) => {
+    const knownFor = Array.isArray(p.known_for)
+      ? p.known_for
+          .map((w: any) => (w.media_type === 'tv' ? w.name : w.title) ?? '')
+          .filter(Boolean)
+          .slice(0, 3)
+          .join('、')
+      : ''
+    return {
+      id: p.id,
+      name: p.name ?? '',
+      profileUrl: p.profile_path ? TMDB_IMG + p.profile_path : null,
+      knownFor
+    }
+  })
+}
+
+// 人物详情（/person/{id}），仅拉取并映射字段，头像由调用方下载
+export async function tmdbPersonDetail(tmdbId: number): Promise<TmdbPersonInfo> {
+  applyProxy(prefs.get('tmdbProxy', ''))
+  const data = await tmdbGet(`/person/${tmdbId}`)
+  const DEP: Record<string, string> = {
+    Acting: '演员',
+    Directing: '导演',
+    Writing: '编剧',
+    Production: '制片'
+  }
+  return {
+    name: data.name ?? '',
+    gender: data.gender === 1 ? 'female' : data.gender === 2 ? 'male' : data.gender === 3 ? 'other' : null,
+    birthDate: data.birthday ?? null,
+    birthPlace: data.place_of_birth ?? null,
+    alternateNames: Array.isArray(data.also_known_as)
+      ? data.also_known_as.map((s: unknown) => String(s).trim()).filter(Boolean)
+      : [],
+    occupation: data.known_for_department && DEP[data.known_for_department]
+      ? [DEP[data.known_for_department]]
+      : [],
+    summary: data.biography ? String(data.biography) : null,
+    photoPath: data.profile_path ? TMDB_IMG + data.profile_path : null
   }
 }
 

@@ -48,6 +48,9 @@ import type {
   GalleryImage,
   TmdbSearchItem,
   TmdbDetail,
+  TmdbCastEntry,
+  TmdbPersonSearchItem,
+  TmdbPersonInfo,
   BgmSearchItem,
   BgmDetail,
   WebDavConfig,
@@ -96,7 +99,8 @@ interface MookApi {
     rows: (
       table: string,
       limit?: number,
-      offset?: number
+      offset?: number,
+      search?: { column: string; keyword: string }
     ) => Promise<{
       columns: string[]
       primaryKeys: string[]
@@ -194,7 +198,11 @@ interface MookApi {
     remove: (id: string) => Promise<boolean>
   }
   person: {
-    list: (keyword?: string, includeDeleted?: boolean) => Promise<Person[]>
+    list: (
+      keyword?: string,
+      includeDeleted?: boolean,
+      sort?: 'updated' | 'created' | 'name' | 'birth'
+    ) => Promise<Person[]>
     get: (id: string) => Promise<Person | null>
     names: () => Promise<string[]>
     create: (input: PersonInput) => Promise<Person>
@@ -204,6 +212,17 @@ interface MookApi {
     purge: (id: string) => Promise<boolean>
     newId: () => Promise<string>
     pickPhoto: (personId: string) => Promise<string | null>
+    tmdbCastPreview: (
+      tmdbId: number,
+      mediaType: 'movie' | 'tv'
+    ) => Promise<TmdbCastEntry[]>
+    importTmdbCast: (
+      movieId: string,
+      entries: TmdbCastEntry[],
+      picks: Record<string, string>
+    ) => Promise<{ created: number; linked: number; skipped: number }>
+    tmdbSearchPeople: (query: string) => Promise<TmdbPersonSearchItem[]>
+    tmdbFetchPerson: (tmdbId: number, localPersonId: string) => Promise<TmdbPersonInfo>
   }
   personLink: {
     byWork: (kind: MediaKind, workId: string) => Promise<PersonLinkWithPerson[]>
@@ -216,6 +235,11 @@ interface MookApi {
     remove: (kind: CharacterKind, id: string) => Promise<boolean>
     newId: () => Promise<string>
     pickImage: (characterId: string) => Promise<string | null>
+    importTmdb: (
+      movieId: string,
+      tmdbId: number,
+      mediaType: 'movie' | 'tv'
+    ) => Promise<{ created: number; skipped: number }>
   }
   playlist: {
     list: (includeDeleted?: boolean) => Promise<Playlist[]>
@@ -289,7 +313,9 @@ interface MookApi {
     calendar: (mode: 0 | 1) => Promise<CalendarEntry[]>
     gallery: () => Promise<GalleryImage[]>
     home: () => Promise<HomeStats>
-    dayItems: (day: string) => Promise<{ kind: string; title: string }[]>
+    dayItems: (
+      day: string
+    ) => Promise<{ kind: string; id: string; title: string; cover: string | null }[]>
   }
   excel: {
     export: (kind: 'movie' | 'book' | 'game') => Promise<string | null>

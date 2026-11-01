@@ -582,6 +582,47 @@ export interface TmdbSearchItem {
   rating: number | null
 }
 
+// 演职人员（credits）
+export interface TmdbCastPerson {
+  tmdbId: number
+  name: string
+  character: string | null // 仅演员：饰演角色名
+  job: string | null // 仅主创：Director / Screenplay / Writer
+  profileUrl: string | null // 头像完整 URL
+  order: number
+}
+export interface TmdbCredits {
+  cast: TmdbCastPerson[]
+  crew: TmdbCastPerson[]
+}
+
+// credits 聚合后的单个演职人员（同一人多身份合并），用于导入前预览
+export interface TmdbCastEntry {
+  tmdbId: number
+  name: string
+  profileUrl: string | null
+  parts: { role: 'director' | 'writer' | 'actor'; character: string | null }[]
+  order: number
+}
+
+export interface TmdbPersonSearchItem {
+  id: number
+  name: string
+  profileUrl: string | null
+  knownFor: string
+}
+
+export interface TmdbPersonInfo {
+  name: string
+  gender: string | null // male / female / other
+  birthDate: string | null
+  birthPlace: string | null
+  alternateNames: string[]
+  occupation: string[]
+  summary: string | null
+  photoPath: string | null // 已下载到本地的头像路径
+}
+
 export interface TmdbDetail extends TmdbSearchItem {
   genres: string[]
   directors: string[]

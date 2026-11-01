@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useInfiniteScroll } from '@/utils/infiniteScroll'
 import {
   NButton,
   NInput,
   NSpin,
   NModal,
   NCheckbox,
+  NSelect,
   useMessage,
   useDialog
 } from 'naive-ui'
@@ -43,8 +45,68 @@ const primaryKeys = ref<string[]>([])
 const rows = ref<Row[]>([])
 const total = ref(0)
 const page = ref(0)
-const PAGE_SIZE = 200
+const PAGE_SIZE = 15
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
+const tableWrap = ref<HTMLElement | null>(null)
+const sentinel = ref<HTMLElement | null>(null)
+// 列宽拖拽
+const DEFAULT_COL_WIDTH = 160
+const colWidths = ref<Record<string, number>>({})
+let dragState: { name: string; startX: number; startW: number } | null = null
+
+function colStyle(name: string): Record<string, string> {
+  const w = colWidths.value[name]
+  return w ? { width: `${w}px` } : {}
+}
+
+function onColMouseDown(e: MouseEvent, name: string): void {
+  e.preventDefault()
+  e.stopPropagation()
+  dragState = {
+    name,
+    startX: e.clientX,
+    startW: (e.currentTarget as HTMLElement).closest('th')?.offsetWidth ?? DEFAULT_COL_WIDTH
+  }
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  window.addEventListener('mousemove', onColMouseMove)
+  window.addEventListener('mouseup', onColMouseUp)
+}
+
+function onColMouseMove(e: MouseEvent): void {
+  if (!dragState) return
+  const w = Math.max(48, dragState.startW + e.clientX - dragState.startX)
+  colWidths.value = { ...colWidths.value, [dragState.name]: w }
+}
+
+function onColMouseUp(): void {
+  dragState = null
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+  window.removeEventListener('mousemove', onColMouseMove)
+  window.removeEventListener('mouseup', onColMouseUp)
+}
+
+onBeforeUnmount(() => {
+  window.removeEventListener('mousemove', onColMouseMove)
+  window.removeEventListener('mouseup', onColMouseUp)
+})
+
+// SQL 结果懒加载：数据一次性返回，DOM 分批挂载
+const SQL_PAGE = 60
+const sqlRenderCount = ref(SQL_PAGE)
+const sqlVisibleRows = computed(() => sqlRows.value.slice(0, sqlRenderCount.value))
+const sqlHasMore = computed(() => sqlRenderCount.value < sqlRows.value.length)
+// 按字段搜索
+const searchColumn = ref<string | null>(null)
+const searchKeyword = ref('')
+const columnOptions = computed(() => columns.value.map((c) => ({ label: c, value: c })))
+
+function currentSearch(): { column: string; keyword: string } | undefined {
+  return searchColumn.value && searchKeyword.value.trim()
+    ? { column: searchColumn.value, keyword: searchKeyword.value.trim() }
+    : undefined
+}
 const tableLoading = ref(false)
 const sqlRunning = ref(false)
 
@@ -72,13 +134,23 @@ async function loadTables(): Promise<void> {
   if (tables.value[0]) await loadTable(tables.value[0])
 }
 
-async function loadTable(table: string, targetPage = 0): Promise<void> {
+async function loadTable(table: string, targetPage = 0, resetSearch = true): Promise<void> {
   sqlMode.value = false
   activeTable.value = table
   page.value = targetPage
+  colWidths.value = {}
+  if (resetSearch) {
+    searchKeyword.value = ''
+    searchColumn.value = null
+  }
   tableLoading.value = true
   try {
-    const r = await window.mook.db.rows(table, PAGE_SIZE, targetPage * PAGE_SIZE)
+    const r = await window.mook.db.rows(
+      table,
+      PAGE_SIZE,
+      targetPage * PAGE_SIZE,
+      currentSearch()
+    )
     columns.value = r.columns
     columnInfo.value = r.columnInfo
     primaryKeys.value = r.primaryKeys
@@ -91,13 +163,42 @@ async function loadTable(table: string, targetPage = 0): Promise<void> {
   }
 }
 
-async function refresh(): Promise<void> {
-  if (activeTable.value) await loadTable(activeTable.value, page.value)
-}
-
 function gotoPage(p: number): void {
   if (!activeTable.value || p < 0 || p >= totalPages.value) return
-  void loadTable(activeTable.value, p)
+  void loadTable(activeTable.value, p, false)
+}
+
+// SQL 结果一次性返回，滚动到底时再挂载下一批 DOM
+useInfiniteScroll(
+  sentinel,
+  () => {
+    sqlRenderCount.value += SQL_PAGE
+  },
+  {
+    root: () => tableWrap.value,
+    canLoad: () => sqlMode.value && sqlHasMore.value,
+    margin: '300px 0px'
+  }
+)
+
+async function refresh(): Promise<void> {
+  if (activeTable.value) await loadTable(activeTable.value, page.value, false)
+}
+
+function runSearch(): void {
+  if (!activeTable.value) return
+  void loadTable(activeTable.value, 0, false)
+}
+
+function onSearchColumnChange(v: string | null): void {
+  searchColumn.value = v
+  if (searchKeyword.value.trim()) runSearch()
+}
+
+function clearSearch(): void {
+  searchKeyword.value = ''
+  searchColumn.value = null
+  void refresh()
 }
 
 function toFieldState(name: string, v: unknown, info: ColInfo | undefined): FieldState {
@@ -218,6 +319,8 @@ async function runSql(): Promise<void> {
     sqlMode.value = true
     sqlColumns.value = r.columns
     sqlRows.value = r.rows
+    sqlRenderCount.value = SQL_PAGE
+    colWidths.value = {}
     if (r.columns.length) {
       message.success(`查询完成，${r.rows.length} 行`)
     } else {
@@ -232,7 +335,7 @@ async function runSql(): Promise<void> {
 }
 
 const shownColumns = computed(() => (sqlMode.value ? sqlColumns.value : columns.value))
-const shownRows = computed(() => (sqlMode.value ? sqlRows.value : rows.value))
+const shownRows = computed(() => (sqlMode.value ? sqlVisibleRows.value : rows.value))
 
 onMounted(loadTables)
 </script>
@@ -302,6 +405,29 @@ onMounted(loadTables)
               {{ activeTable }} · 共 {{ total }} 行
               <span v-if="!primaryKeys.length" class="warn">（无主键，不可增删改）</span>
             </div>
+            <div class="meta-search">
+              <NSelect
+                :value="searchColumn"
+                :options="columnOptions"
+                size="tiny"
+                placeholder="选择字段"
+                clearable
+                filterable
+                class="search-col"
+                @update:value="onSearchColumnChange"
+              />
+              <NInput
+                v-model:value="searchKeyword"
+                size="tiny"
+                placeholder="字段值（模糊）"
+                clearable
+                class="search-kw"
+                :disabled="!searchColumn"
+                @keyup.enter="runSearch"
+                @clear="clearSearch"
+              />
+              <NButton size="tiny" :disabled="!searchColumn" @click="runSearch">搜索</NButton>
+            </div>
             <div class="meta-actions">
               <NButton size="tiny" type="primary" :disabled="!primaryKeys.length" @click="openAdd">
                 新增一行
@@ -311,14 +437,22 @@ onMounted(loadTables)
           </template>
         </div>
 
-        <NSpin :show="tableLoading">
-          <div class="table-wrap">
+        <NSpin :show="tableLoading" class="spin-wrap">
+          <div ref="tableWrap" class="table-wrap">
             <table class="grid">
+              <colgroup>
+                <col class="idx" />
+                <col v-if="!sqlMode && primaryKeys.length" class="ops" />
+                <col v-for="c in shownColumns" :key="c" :style="colStyle(c)" />
+              </colgroup>
               <thead>
                 <tr>
                   <th class="idx">#</th>
                   <th v-if="!sqlMode && primaryKeys.length" class="ops">操作</th>
-                  <th v-for="c in shownColumns" :key="c">{{ c }}</th>
+                  <th v-for="c in shownColumns" :key="c">
+                    <span class="th-label">{{ c }}</span>
+                    <span class="col-resize" @mousedown="onColMouseDown($event, c)"></span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -343,6 +477,9 @@ onMounted(loadTables)
               </tbody>
             </table>
             <div v-if="!shownRows.length" class="empty">暂无数据</div>
+            <div v-if="sqlMode && sqlHasMore" ref="sentinel" class="sentinel">
+              滚动加载更多…（已显示 {{ sqlRenderCount }} / {{ sqlRows.length }}）
+            </div>
           </div>
         </NSpin>
 
@@ -363,7 +500,7 @@ onMounted(loadTables)
       preset="card"
       :title="formMode === 'add' ? `新增一行 · ${activeTable}` : `编辑一行 · ${activeTable}`"
       :style="{ width: '680px' }"
-      @update:show="(v: boolean) => (formShow = v)"
+      @update:show="(v) => (formShow = v)"
     >
       <div class="form-list">
         <div v-for="f in fields" :key="f.name" class="form-field">
@@ -480,6 +617,7 @@ onMounted(loadTables)
 .main {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   border: 1px solid #eef0f4;
@@ -515,12 +653,38 @@ onMounted(loadTables)
   justify-content: space-between;
   gap: 10px;
 }
+.meta-search {
+  flex: 1;
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  padding: 0 12px;
+}
+.search-col {
+  width: 150px;
+}
+.search-kw {
+  width: 180px;
+}
 .meta-actions {
   display: flex;
   gap: 6px;
 }
 .warn {
   color: #d03050;
+}
+.spin-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.spin-wrap :deep(.n-spin-container),
+.spin-wrap :deep(.n-spin-content) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .table-wrap {
   flex: 1;
@@ -534,6 +698,7 @@ onMounted(loadTables)
   font-size: 12.5px;
   white-space: nowrap;
   width: 100%;
+  table-layout: fixed;
 }
 .grid th,
 .grid td {
@@ -541,7 +706,13 @@ onMounted(loadTables)
   border-bottom: 1px solid #f0f1f4;
   border-right: 1px solid #f5f6f8;
   text-align: left;
-  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cell span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .grid th {
   position: sticky;
@@ -551,14 +722,34 @@ onMounted(loadTables)
   color: #5b616c;
   z-index: 1;
 }
+.th-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 8px;
+}
+.col-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+}
+.col-resize:hover,
+.col-resize:active {
+  border-right: 2px solid var(--accent, #2563eb);
+}
 .idx {
   color: #b0b5bd;
   text-align: right;
-  max-width: 48px !important;
+  width: 48px;
 }
 .ops {
   white-space: nowrap;
-  max-width: none !important;
+  width: 104px;
 }
 .row-btn {
   border: none;
@@ -591,6 +782,12 @@ onMounted(loadTables)
   text-align: center;
   font-size: 13px;
   color: #9aa0aa;
+}
+.sentinel {
+  padding: 10px 0;
+  text-align: center;
+  font-size: 12px;
+  color: #a8adb8;
 }
 .pager {
   flex-shrink: 0;
