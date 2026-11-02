@@ -431,7 +431,7 @@ interface MookApi {
   }
   ocr: {
     capture: () => Promise<OcrLine[] | null>
-    cloudConfig: () => Promise<{ configured: boolean; model: string }>
+    cloudConfig: () => Promise<{ configured: boolean; model: string; provider: 'xf' | 'baidu' }>
     cloudTest: () => Promise<{ ok: boolean; message: string }>
     overlayInit: (
       displayId: string
@@ -443,6 +443,28 @@ interface MookApi {
     overlayRecognize: (png: ArrayBuffer) => Promise<{ ok: boolean }>
     overlayCancel: () => Promise<{ ok: boolean }>
     copyText: (text: string) => Promise<{ ok: boolean }>
+  }
+  shot: {
+    capture: () => Promise<{ canceled: boolean; lines: OcrLine[] | null }>
+    overlayInit: (
+      displayId: string
+    ) => Promise<{
+      dataUrl: string
+      scaleFactor: number
+      pixels: { width: number; height: number } | null
+    } | null>
+    overlayOcr: (png: ArrayBuffer) => Promise<{ ok: boolean }>
+    overlayCancel: () => Promise<{ ok: boolean }>
+    overlaySave: (png: ArrayBuffer) => Promise<{ ok: boolean; canceled?: boolean }>
+    overlayPin: (payload: {
+      dataUrl: string
+      width: number
+      height: number
+      x?: number
+      y?: number
+    }) => Promise<{ ok: boolean }>
+    pinInit: (id: string) => Promise<string | null>
+    pinClose: () => void
   }
   util: {
     uuid: () => string

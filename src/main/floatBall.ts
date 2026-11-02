@@ -11,7 +11,7 @@ app.on('before-quit', () => {
 // 桌面悬浮球：独立于主窗口的无边框透明置顶小窗，可在桌面任意位置拖动；
 // 点击在球上方弹出功能面板（菜单 / OCR 结果），面板是另一个独立小窗。
 const BALL_SIZE = 56
-const PANEL_MENU = { w: 176, h: 72 }
+const PANEL_MENU = { w: 176, h: 108 }
 const PANEL_RESULT = { w: 620, h: 540 }
 const GAP = 10
 const MENU_GAP = 4

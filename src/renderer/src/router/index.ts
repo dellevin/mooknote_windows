@@ -91,6 +91,20 @@ const router = createRouter({
       meta: { bare: true }
     },
     {
+      // 独立透明截屏标注窗口专用路由：不渲染应用外壳
+      path: '/screenshot-capture',
+      name: 'screenshot-capture',
+      component: () => import('@/pages/ScreenshotCapturePage.vue'),
+      meta: { bare: true }
+    },
+    {
+      // 钉在桌面的截图小窗：不渲染应用外壳
+      path: '/shot-pin',
+      name: 'shot-pin',
+      component: () => import('@/pages/ShotPinPage.vue'),
+      meta: { bare: true }
+    },
+    {
       // 桌面悬浮球独立窗口
       path: '/float-ball',
       name: 'float-ball',

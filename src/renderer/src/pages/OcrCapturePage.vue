@@ -449,7 +449,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 .h-ne::after  { right: 0; top: 0; width: 2px; height: 12px; }
 .h-sw { left: 0; bottom: 0; }
 .h-sw::before { left: 0; bottom: 0; width: 12px; height: 2px; }
-.h-sw::after  { left: 0; bottom: 0; width: 2px; height: 12px; }
+.h-sw::after { left: 0; bottom: 0; width: 2px; height: 12px; }
 .h-se { right: 0; bottom: 0; }
 .h-se::before { right: 0; bottom: 0; width: 12px; height: 2px; }
 .h-se::after  { right: 0; bottom: 0; width: 2px; height: 12px; }

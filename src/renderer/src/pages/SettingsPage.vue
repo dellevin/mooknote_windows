@@ -56,14 +56,57 @@ const activeMenu = ref('float')
 // 悬浮球页内部的左侧子菜单，默认进入 OCR
 const FLOAT_SUBS = [
   { id: 'general', label: '通用' },
-  { id: 'ocr', label: 'OCR' }
+  { id: 'ocr', label: 'OCR' },
+  { id: 'shot', label: '截屏' }
 ] as const
 const floatSub = ref<(typeof FLOAT_SUBS)[number]['id']>('ocr')
 const ballEnabled = ref(true)
+// 悬浮球菜单里各功能模块的显隐（prefs: ocrMenuEnabled / shotEnabled）
+const ocrMenuEnabled = ref(true)
+const shotEnabled = ref(true)
 
 async function onBallEnabledToggle(v: boolean): Promise<void> {
   await window.mook.float.setEnabled(v)
   ballEnabled.value = v
+}
+async function onOcrMenuToggle(v: boolean): Promise<void> {
+  ocrMenuEnabled.value = v
+  await window.mook.prefs.set('ocrMenuEnabled', v)
+}
+async function onShotEnabledToggle(v: boolean): Promise<void> {
+  shotEnabled.value = v
+  await window.mook.prefs.set('shotEnabled', v)
+}
+
+// ── 截屏工具条小工具显隐（prefs: shotTools） ──
+const SHOT_TOOL_OPTIONS = [
+  { id: 'rect', label: '矩形' },
+  { id: 'ellipse', label: '椭圆' },
+  { id: 'arrow', label: '箭头' },
+  { id: 'brush', label: '画笔' },
+  { id: 'mosaic', label: '马赛克' },
+  { id: 'undo', label: '撤销' },
+  { id: 'ocr', label: '提取文字' },
+  { id: 'save', label: '保存图片' },
+  { id: 'pin', label: '钉住' },
+  { id: 'close', label: '关闭' }
+] as const
+const SHOT_TOOL_ALL = SHOT_TOOL_OPTIONS.map((t) => t.id)
+const shotTools = ref<string[]>([...SHOT_TOOL_ALL])
+
+function isShotToolOn(id: string): boolean {
+  return shotTools.value.includes(id)
+}
+async function toggleShotTool(id: string, on: boolean): Promise<void> {
+  if (on) {
+    if (!shotTools.value.includes(id)) shotTools.value = [...shotTools.value, id]
+  } else {
+    shotTools.value = shotTools.value.filter((t) => t !== id)
+  }
+  await window.mook.prefs.set('shotTools', shotTools.value)
+}
+function onShotToolCheck(id: string, e: Event): void {
+  void toggleShotTool(id, (e.target as HTMLInputElement).checked)
 }
 
 // 在线搜索页内部的左侧子菜单
@@ -752,7 +795,8 @@ interface OcrProvider {
   ready: () => boolean
 }
 const ocrProviders: OcrProvider[] = [
-  { id: 'xfxingchen', label: '讯飞星辰 MaaS', ready: () => cloudConfigured.value }
+  { id: 'xfxingchen', label: '讯飞星辰 MaaS', ready: () => xfConfigured.value },
+  { id: 'baidu', label: '百度智能云', ready: () => baiduConfigured.value }
 ]
 const ocrProvider = ref('xfxingchen')
 const ocrProviderKeyword = ref('')
@@ -761,41 +805,77 @@ const filteredOcrProviders = computed(() => {
   if (!kw) return ocrProviders
   return ocrProviders.filter((p) => p.label.toLowerCase().includes(kw))
 })
-function onPickOcrProvider(id: string): void {
+// 标签灯：当前选中=绿；未选中但已配置=黄；未配置=红
+function ocrDotClass(id: string): 'on' | 'ready' | 'none' {
+  if (ocrProvider.value === id) return 'on'
+  const p = ocrProviders.find((x) => x.id === id)
+  return p && p.ready() ? 'ready' : 'none'
+}
+// 切换提供方即写回 prefs：识别与「测试连接」都按当前提供方走
+async function onPickOcrProvider(id: string): Promise<void> {
   ocrProvider.value = id
+  await window.mook.prefs.set('ocrProvider', id === 'baidu' ? 'baidu' : 'xf')
 }
 
 // ── 云端 OCR：讯飞星辰视觉大模型，凭证仅保存在本地 prefs ──
 const xfApiKey = ref('')
 const xfEndpoint = ref('')
 const xfModel = ref('')
-const cloudConfigured = ref(false)
+const xfConfigured = ref(false)
 const XF_MODEL_OPTIONS = [
   { label: 'PaddleOCR v1.6（xoppaddleocrv16）', value: 'xoppaddleocrv16' },
   { label: 'DeepSeek OCR（xopdeepseekocr）', value: 'xopdeepseekocr' },
   { label: '混元 OCR（xophunyuanocr）', value: 'xophunyuanocr' }
 ]
 
+// ── 百度智能云 OCR：AK/SK 换 access_token，调通用文字识别 ──
+const baiduAk = ref('')
+const baiduSk = ref('')
+const baiduEndpoint = ref('general_basic')
+const baiduConfigured = ref(false)
+const BAIDU_ENDPOINT_OPTIONS = [
+  { label: '通用文字识别（标准版）', value: 'general_basic' },
+  { label: '通用文字识别（标准含位置版）', value: 'general' },
+  { label: '通用文字识别（高精度版）', value: 'accurate_basic' },
+  { label: '通用文字识别（高精度含位置版）', value: 'accurate' }
+]
+
 async function loadCloudOcr(): Promise<void> {
   const cfg = await window.mook.ocr.cloudConfig()
-  cloudConfigured.value = cfg.configured
+  ocrProvider.value = cfg.provider === 'baidu' ? 'baidu' : 'xfxingchen'
   const p = window.mook.prefs
   xfApiKey.value = await p.get('xfOcrApiKey', '')
   xfEndpoint.value = await p.get('xfOcrEndpoint', '')
-  xfModel.value = (await p.get('xfOcrModel', '')) || cfg.model
+  xfModel.value = (await p.get('xfOcrModel', '')) || 'xoppaddleocrv16'
+  xfConfigured.value = cfg.provider === 'xf' ? cfg.configured : !!xfApiKey.value
+  baiduAk.value = await p.get('baiduOcrAk', '')
+  baiduSk.value = await p.get('baiduOcrSk', '')
+  baiduEndpoint.value =
+    (await p.get('baiduOcrEndpoint', '')) ||
+    (cfg.provider === 'baidu' ? cfg.model : '') ||
+    'general_basic'
+  baiduConfigured.value = cfg.provider === 'baidu' ? cfg.configured : !!baiduAk.value && !!baiduSk.value
 }
 async function saveCloudCredentials(): Promise<void> {
   const p = window.mook.prefs.set.bind(window.mook.prefs)
-  await Promise.all([
-    p('xfOcrApiKey', xfApiKey.value.trim()),
-    p('xfOcrEndpoint', xfEndpoint.value.trim()),
-    p('xfOcrModel', xfModel.value.trim())
-  ])
+  const tasks =
+    ocrProvider.value === 'baidu'
+      ? [
+          p('baiduOcrAk', baiduAk.value.trim()),
+          p('baiduOcrSk', baiduSk.value.trim()),
+          p('baiduOcrEndpoint', baiduEndpoint.value)
+        ]
+      : [
+          p('xfOcrApiKey', xfApiKey.value.trim()),
+          p('xfOcrEndpoint', xfEndpoint.value.trim()),
+          p('xfOcrModel', xfModel.value.trim())
+        ]
+  await Promise.all(tasks)
   await loadCloudOcr()
   message.success('OCR 配置已保存')
 }
 
-// 测试：先把界面上未保存的输入落盘，再发真实请求验证密钥
+// 测试：先把界面上未保存的输入落盘（同时写回当前提供方），再发真实请求验证密钥
 const cloudTesting = ref(false)
 async function testCurrentCloud(): Promise<void> {
   if (cloudTesting.value) return
@@ -873,6 +953,11 @@ onMounted(async () => {
   await refreshIncInfo(false)
   await loadCloudOcr()
   ballEnabled.value = await window.mook.float.getEnabled()
+  ocrMenuEnabled.value =
+    (await window.mook.prefs.get<boolean>('ocrMenuEnabled', true)) !== false
+  shotEnabled.value = (await window.mook.prefs.get<boolean>('shotEnabled', true)) !== false
+  const savedTools = await window.mook.prefs.get<string[]>('shotTools', [...SHOT_TOOL_ALL])
+  shotTools.value = Array.isArray(savedTools) && savedTools.length ? savedTools : [...SHOT_TOOL_ALL]
   // 恢复上次选中的 tab，并把对应面板滚动到顶部（默认悬浮球页）
   const saved = await window.mook.prefs.get<string>('settingsActiveTab', 'float')
   if (MENU.some((m) => m.id === saved)) {
@@ -1331,6 +1416,31 @@ onMounted(async () => {
                   <NSwitch :value="ballEnabled" @update:value="onBallEnabledToggle" />
                 </div>
                 <p class="hint">关闭后悬浮球在桌面隐藏，重新打开即可恢复，拖动后的位置会保留。</p>
+
+                <h3 class="float-main-title" style="margin-top: 18px">功能模块</h3>
+                <p class="hint">控制悬浮球菜单中显示哪些功能入口。</p>
+                <div class="form-row">
+                  <label class="lbl">显示「OCR 识别」</label>
+                  <NSwitch :value="ocrMenuEnabled" @update:value="onOcrMenuToggle" />
+                </div>
+                <div class="form-row">
+                  <label class="lbl">显示「截屏」</label>
+                  <NSwitch :value="shotEnabled" @update:value="onShotEnabledToggle" />
+                </div>
+              </template>
+              <template v-else-if="floatSub === 'shot'">
+                <h3 class="float-main-title">截屏工具条</h3>
+                <p class="hint">选择截屏标注工具条上显示的小工具与操作按钮；关闭只是隐藏，不影响框选与移动选区。</p>
+                <div class="shot-tool-grid">
+                  <label v-for="opt in SHOT_TOOL_OPTIONS" :key="opt.id" class="shot-tool-item">
+                    <input
+                      type="checkbox"
+                      :checked="isShotToolOn(opt.id)"
+                      @change="onShotToolCheck(opt.id, $event)"
+                    />
+                    <span>{{ opt.label }}</span>
+                  </label>
+                </div>
               </template>
               <template v-else>
                 <h3 class="float-main-title">OCR 识别</h3>
@@ -1357,7 +1467,7 @@ onMounted(async () => {
                       @click="onPickOcrProvider(p.id)"
                     >
                       <span class="ocr-tag-label">{{ p.label }}</span>
-                      <span class="ocr-tag-dot" :class="p.ready() ? 'ok' : 'no'" />
+                      <span class="ocr-tag-dot" :class="ocrDotClass(p.id)" />
                     </button>
                     <span v-if="!filteredOcrProviders.length" class="ocr-provider-empty">无匹配的识别模块</span>
                   </div>
@@ -1368,8 +1478,8 @@ onMounted(async () => {
                     <header class="ocr-module-head">
                       <div class="ocr-module-name">
                         <span class="ocr-module-title">讯飞星辰 MaaS</span>
-                        <NTag size="small" :type="cloudConfigured ? 'success' : 'warning'" :bordered="false">
-                          {{ cloudConfigured ? '已配置' : '未配置' }}
+                        <NTag size="small" :type="xfConfigured ? 'success' : 'warning'" :bordered="false">
+                          {{ xfConfigured ? '已配置' : '未配置' }}
                         </NTag>
                       </div>
                       <span class="ocr-module-desc">视觉 OCR 大模型，选择模型并填写 API Key</span>
@@ -1404,6 +1514,55 @@ onMounted(async () => {
                         tag
                         :options="XF_MODEL_OPTIONS"
                         placeholder="选择或直接输入 OCR 模型 ID"
+                      />
+                    </div>
+                    <NSpace :size="10" class="save-row">
+                      <NButton size="small" type="primary" @click="saveCloudCredentials">保存</NButton>
+                      <NButton size="small" :loading="cloudTesting" @click="testCurrentCloud">测试连接</NButton>
+                    </NSpace>
+                  </section>
+                </div>
+
+                <div v-else-if="ocrProvider === 'baidu'" class="ocr-modules">
+                  <section class="ocr-module">
+                    <header class="ocr-module-head">
+                      <div class="ocr-module-name">
+                        <span class="ocr-module-title">百度智能云 OCR</span>
+                        <NTag size="small" :type="baiduConfigured ? 'success' : 'warning'" :bordered="false">
+                          {{ baiduConfigured ? '已配置' : '未配置' }}
+                        </NTag>
+                      </div>
+                      <span class="ocr-module-desc">通用文字识别（pp_ocr），填写应用的 API Key / Secret Key</span>
+                    </header>
+                    <div class="form-row">
+                      <label class="lbl">API Key</label>
+                      <NInput
+                        v-model:value="baiduAk"
+                        size="small"
+                        class="ctrl"
+                        type="password"
+                        show-password-on="click"
+                        placeholder="应用的 API Key（AK）"
+                      />
+                    </div>
+                    <div class="form-row">
+                      <label class="lbl">Secret Key</label>
+                      <NInput
+                        v-model:value="baiduSk"
+                        size="small"
+                        class="ctrl"
+                        type="password"
+                        show-password-on="click"
+                        placeholder="应用的 Secret Key（SK）"
+                      />
+                    </div>
+                    <div class="form-row">
+                      <label class="lbl">识别接口</label>
+                      <NSelect
+                        v-model:value="baiduEndpoint"
+                        size="small"
+                        class="ctrl"
+                        :options="BAIDU_ENDPOINT_OPTIONS"
                       />
                     </div>
                     <NSpace :size="10" class="save-row">
@@ -1600,6 +1759,31 @@ onMounted(async () => {
   font-weight: 600;
   color: var(--text-strong, #1f2329);
 }
+/* 截屏工具按钮显隐：复选框网格 */
+.shot-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.shot-tool-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-strong, #1f2329);
+  cursor: pointer;
+}
+.shot-tool-item:hover {
+  background: rgba(17, 17, 17, 0.04);
+}
+.shot-tool-item input {
+  accent-color: var(--accent, #2563eb);
+  cursor: pointer;
+}
 /* OCR 识别模块：每个提供方一个独立小卡，后续并列追加即可 */
 .ocr-provider-bar {
   display: flex;
@@ -1645,11 +1829,15 @@ onMounted(async () => {
   border-radius: 50%;
   flex: 0 0 auto;
 }
-.ocr-tag-dot.ok {
+/* 当前选中=绿；未选中但已配置=黄；未配置=红 */
+.ocr-tag-dot.on {
   background: #18a058;
 }
-.ocr-tag-dot.no {
-  background: #c2c6cf;
+.ocr-tag-dot.ready {
+  background: #f0a020;
+}
+.ocr-tag-dot.none {
+  background: #d03050;
 }
 .ocr-provider-empty {
   font-size: 12px;

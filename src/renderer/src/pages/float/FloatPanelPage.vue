@@ -6,14 +6,20 @@ import type { OcrLine } from '@shared/types'
 const mode = ref<'menu' | 'result'>('menu')
 const lines = ref<OcrLine[]>([])
 const capturing = ref(false)
+const shooting = ref(false)
 const errorMsg = ref('')
 const cloudReady = ref(false)
+const shotEnabled = ref(true)
+const ocrMenuEnabled = ref(true)
 // 主进程每次展示前都会先推送 mode；首个 mode 到达前保持透明，避免先画上一种模式再切换（闪烁）
 const shown = ref(false)
 
 const cloudLabel = computed(() => 'OCR识别')
 
 const resultText = computed(() => lines.value.map((l) => l.text).join('\n'))
+
+// 结果面板里「重新截取」要回到对应的入口（OCR 识别 / 截屏）
+const lastSource = ref<'ocr' | 'shot'>('ocr')
 
 async function startOcr(): Promise<void> {
   if (capturing.value || !cloudReady.value) return
@@ -27,6 +33,7 @@ async function startOcr(): Promise<void> {
       window.mook.float.hide()
       return
     }
+    lastSource.value = 'ocr'
     lines.value = res
     await window.mook.float.setMode('result')
   } catch (e) {
@@ -36,6 +43,30 @@ async function startOcr(): Promise<void> {
   } finally {
     capturing.value = false
   }
+}
+
+async function startShot(): Promise<void> {
+  if (shooting.value) return
+  shooting.value = true
+  try {
+    // 截屏是独立会话：主进程隐藏面板、球转圈；
+    // 点「提取文字」会带回识别行并弹出结果面板；保存/钉住/取消则面板保持收起
+    const res = await window.mook.shot.capture()
+    if (res.canceled || !res.lines) {
+      window.mook.float.hide()
+      return
+    }
+    lastSource.value = 'shot'
+    errorMsg.value = ''
+    lines.value = res.lines
+    await window.mook.float.setMode('result')
+  } finally {
+    shooting.value = false
+  }
+}
+
+function recapture(): void {
+  void (lastSource.value === 'shot' ? startShot() : startOcr())
 }
 
 async function copyAll(): Promise<void> {
@@ -64,6 +95,9 @@ onMounted(async () => {
   } catch {
     cloudReady.value = false
   }
+  shotEnabled.value = (await window.mook.prefs.get<boolean>('shotEnabled', true)) !== false
+  ocrMenuEnabled.value =
+    (await window.mook.prefs.get<boolean>('ocrMenuEnabled', true)) !== false
 })
 onBeforeUnmount(() => {
   offMode?.()
@@ -75,14 +109,22 @@ onBeforeUnmount(() => {
   <div v-show="shown" class="panel-root" :class="mode">
     <!-- 功能菜单 -->
     <div v-if="mode === 'menu'" class="menu-card">
-      <button class="menu-item" :disabled="capturing || !cloudReady" @click="startOcr">
+      <button v-if="ocrMenuEnabled" class="menu-item" :disabled="capturing || shooting || !cloudReady" @click="startOcr">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M17.5 19a4.5 4.5 0 0 0 .5-9 6 6 0 0 0-11.6-1.5A4 4 0 0 0 6.5 19z" />
         </svg>
         <span>{{ capturing ? '正在截屏…' : cloudLabel }}</span>
       </button>
-      <div v-if="!cloudReady" class="menu-hint">云端 OCR 未配置，请到设置页填写密钥</div>
+      <button v-if="shotEnabled" class="menu-item" :disabled="capturing || shooting" @click="startShot">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 7h3l2-2h6l2 2h3v12H4z" />
+          <circle cx="12" cy="13" r="3.2" />
+        </svg>
+        <span>{{ shooting ? '正在截屏…' : '截屏' }}</span>
+      </button>
+      <div v-if="ocrMenuEnabled && !cloudReady" class="menu-hint">云端 OCR 未配置，截屏的「提取文字」不可用</div>
     </div>
 
     <!-- OCR 结果 -->
@@ -98,7 +140,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="rc-foot">
         <button class="btn" @click="closePanel">关闭</button>
-        <button class="btn" @click="startOcr">重新截取</button>
+        <button class="btn" @click="recapture">重新截取</button>
         <button class="btn primary" :disabled="!lines.length" @click="copyAll">复制全部</button>
       </div>
     </div>

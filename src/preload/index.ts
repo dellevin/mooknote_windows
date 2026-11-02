@@ -559,7 +559,7 @@ const api = {
   // OCR：悬浮球发起截屏选区识别
   ocr: {
     capture: (): Promise<OcrLine[] | null> => ipcRenderer.invoke('ocr:capture'),
-    cloudConfig: (): Promise<{ configured: boolean; model: string }> =>
+    cloudConfig: (): Promise<{ configured: boolean; model: string; provider: 'xf' | 'baidu' }> =>
       ipcRenderer.invoke('ocr:cloud-config'),
     cloudTest: (): Promise<{ ok: boolean; message: string }> =>
       ipcRenderer.invoke('ocr:cloud-test'),
@@ -576,6 +576,34 @@ const api = {
       ipcRenderer.invoke('ocr:overlay-cancel'),
     copyText: (text: string): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke('ocr:copy-text', text)
+  },
+  // 截屏标注：独立于 OCR 的微信式截图工具
+  shot: {
+    capture: (): Promise<{ canceled: boolean; lines: OcrLine[] | null }> =>
+      ipcRenderer.invoke('shot:capture'),
+    overlayInit: (
+      displayId: string
+    ): Promise<{
+      dataUrl: string
+      scaleFactor: number
+      pixels: { width: number; height: number } | null
+    } | null> => ipcRenderer.invoke('shot:overlay-init', displayId),
+    overlayOcr: (png: ArrayBuffer): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('shot:overlay-ocr', png),
+    overlayCancel: (): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('shot:overlay-cancel'),
+    overlaySave: (png: ArrayBuffer): Promise<{ ok: boolean; canceled?: boolean }> =>
+      ipcRenderer.invoke('shot:overlay-save', png),
+    overlayPin: (payload: {
+      dataUrl: string
+      width: number
+      height: number
+      x?: number
+      y?: number
+    }): Promise<{ ok: boolean }> => ipcRenderer.invoke('shot:overlay-pin', payload),
+    pinInit: (id: string): Promise<string | null> =>
+      ipcRenderer.invoke('shot:pin-init', id),
+    pinClose: (): void => ipcRenderer.send('shot:pin-close')
   },
   util: {
     uuid: (): string => randomUUID()

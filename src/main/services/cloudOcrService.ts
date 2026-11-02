@@ -1,26 +1,33 @@
 import { prefs } from '../prefs'
 import type { CloudOcrLine } from '../../shared/types'
 
-// 云端 OCR：讯飞星辰 MaaS（OpenAI 兼容的视觉理解大模型）。
-// 凭证与模型全部保存在本地 prefs，由用户在设置页填写；不内置任何密钥。
+// 云端 OCR：支持多个提供方，由 prefs.ocrProvider 决定当前使用哪一个。
+//  - xf：讯飞星辰 MaaS（OpenAI 兼容的视觉理解大模型）
+//  - baidu：百度智能云 OCR（AK/SK 换 access_token，调 pp_ocr 通用文字识别）
+// 凭证全部保存在本地 prefs，由用户在设置页填写；不内置任何密钥。
 const TIMEOUT_MS = 60000
 const DEFAULT_ENDPOINT = 'https://maas-api.cn-huabei-1.xf-yun.com/v2/chat/completions'
 const DEFAULT_MODEL = 'xoppaddleocrv16'
 
+type Provider = 'xf' | 'baidu'
+
 class CloudOcrError extends Error {}
 
-function readPrefs(): { apiKey: string; endpoint: string; model: string } {
-  const g = (k: string): string => String(prefs.get(k, '') ?? '').trim()
+function g(k: string): string {
+  return String(prefs.get(k, '') ?? '').trim()
+}
+
+function activeProvider(): Provider {
+  return g('ocrProvider') === 'baidu' ? 'baidu' : 'xf'
+}
+
+// ── 讯飞星辰 ────────────────────────────────────────────────
+function readXfPrefs(): { apiKey: string; endpoint: string; model: string } {
   return {
     apiKey: g('xfOcrApiKey'),
     endpoint: g('xfOcrEndpoint') || DEFAULT_ENDPOINT,
     model: g('xfOcrModel') || DEFAULT_MODEL
   }
-}
-
-export function getCloudConfig(): { configured: boolean; model: string } {
-  const p = readPrefs()
-  return { configured: !!p.apiKey, model: p.model }
 }
 
 const OCR_PROMPT = [
@@ -43,7 +50,7 @@ interface ChatResponse {
 }
 
 async function chatWithImage(buf: Buffer): Promise<string> {
-  const p = readPrefs()
+  const p = readXfPrefs()
   if (!p.apiKey) throw new CloudOcrError('未配置讯飞星辰 API Key')
 
   const dataUrl = 'data:image/png;base64,' + buf.toString('base64')
@@ -91,7 +98,7 @@ async function chatWithImage(buf: Buffer): Promise<string> {
   }
 }
 
-export async function recognizeCloud(buf: Buffer): Promise<CloudOcrLine[]> {
+async function recognizeXf(buf: Buffer): Promise<CloudOcrLine[]> {
   const content = (await chatWithImage(buf)).trim()
   if (!content || content === 'NO_TEXT') return []
   // 模型偶尔会用代码块包裹，去掉包裹后按行拆分；逐字保留原文，不 trim 每一行（避免吞掉行首空格）
@@ -122,7 +129,7 @@ const AUTH_ERROR_HINTS = [
   '无有效响应'
 ]
 
-export async function testCloud(): Promise<{ ok: boolean; message: string }> {
+async function testXf(): Promise<{ ok: boolean; message: string }> {
   try {
     const content = await chatWithImage(TINY_PNG)
     void content
@@ -135,4 +142,146 @@ export async function testCloud(): Promise<{ ok: boolean; message: string }> {
     // 非鉴权错误（测试图太小、无文字、限流等）：请求已通过鉴权
     return { ok: true, message: '连接成功，密钥有效（接口返回：' + msg + '）' }
   }
+}
+
+// ── 百度智能云 OCR ─────────────────────────────────────────
+const BAIDU_TOKEN_URL = 'https://aip.baidubce.com/oauth/2.0/token'
+const BAIDU_OCR_BASE = 'https://aip.baidubce.com/rest/2.0/ocr/v1/'
+const BAIDU_DEFAULT_ENDPOINT = 'general_basic'
+// 允许的通用文字识别端点（含位置版额外返回坐标，这里同样只取文字）
+const BAIDU_ENDPOINTS = new Set(['general_basic', 'general', 'accurate_basic', 'accurate'])
+
+interface BaiduCreds {
+  ak: string
+  sk: string
+  endpoint: string
+}
+function readBaiduPrefs(): BaiduCreds {
+  const endpoint = g('baiduOcrEndpoint')
+  return {
+    ak: g('baiduOcrAk'),
+    sk: g('baiduOcrSk'),
+    endpoint: BAIDU_ENDPOINTS.has(endpoint) ? endpoint : BAIDU_DEFAULT_ENDPOINT
+  }
+}
+
+// access_token 有效期 30 天，缓存到内存，过期前 60s 主动刷新
+let tokenCache: { token: string; expireAt: number } | null = null
+
+interface TokenResponse {
+  access_token?: string
+  expires_in?: number
+  error?: string
+  error_description?: string
+}
+
+async function fetchBaiduToken(force = false): Promise<string> {
+  const now = Date.now()
+  if (!force && tokenCache && tokenCache.expireAt - 60_000 > now) {
+    return tokenCache.token
+  }
+  const c = readBaiduPrefs()
+  if (!c.ak || !c.sk) throw new CloudOcrError('未配置百度智能云 API Key / Secret Key')
+  const url =
+    BAIDU_TOKEN_URL +
+    '?grant_type=client_credentials' +
+    '&client_id=' + encodeURIComponent(c.ak) +
+    '&client_secret=' + encodeURIComponent(c.sk)
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
+  try {
+    const resp = await fetch(url, { method: 'POST', signal: ctrl.signal })
+    const j = (await resp.json()) as TokenResponse
+    if (!j.access_token) {
+      throw new CloudOcrError(
+        `百度鉴权失败：${j.error ?? ''} ${j.error_description ?? '无法获取 access_token'}`.trim()
+      )
+    }
+    tokenCache = {
+      token: j.access_token,
+      expireAt: now + (Number(j.expires_in) || 2592000) * 1000
+    }
+    return tokenCache.token
+  } catch (e) {
+    if (e instanceof CloudOcrError) throw e
+    throw new CloudOcrError('百度鉴权网络请求失败：' + String(e))
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+interface BaiduOcrResponse {
+  words_result?: { words?: string }[]
+  words_result_num?: number
+  error_code?: number
+  error_msg?: string
+}
+
+async function recognizeBaidu(buf: Buffer): Promise<CloudOcrLine[]> {
+  const c = readBaiduPrefs()
+  const doRequest = async (token: string): Promise<BaiduOcrResponse> => {
+    const body = 'image=' + encodeURIComponent(buf.toString('base64'))
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
+    try {
+      const resp = await fetch(
+        `${BAIDU_OCR_BASE}${c.endpoint}?access_token=${encodeURIComponent(token)}`,
+        {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json'
+        },
+        body,
+        signal: ctrl.signal
+      })
+      return (await resp.json()) as BaiduOcrResponse
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  let token = await fetchBaiduToken()
+  let j = await doRequest(token)
+  // 110/111：token 失效/过期，强制刷新一次后重试
+  if (j.error_code === 110 || j.error_code === 111) {
+    token = await fetchBaiduToken(true)
+    j = await doRequest(token)
+  }
+  if (typeof j.error_code === 'number') {
+    throw new CloudOcrError(`百度 OCR 错误 ${j.error_code}：${j.error_msg ?? ''}`)
+  }
+  const rows = j.words_result ?? []
+  return rows
+    .map((r) => String(r.words ?? ''))
+    .filter((t) => t.length > 0)
+    .map((text) => ({ text, confidence: 1 }))
+}
+
+async function testBaidu(): Promise<{ ok: boolean; message: string }> {
+  try {
+    await fetchBaiduToken(true)
+    return { ok: true, message: '连接成功，百度智能云 AK/SK 有效' }
+  } catch (e) {
+    return { ok: false, message: String((e as Error)?.message ?? e) }
+  }
+}
+
+// ── 统一入口 ────────────────────────────────────────────────
+export function getCloudConfig(): { configured: boolean; model: string; provider: Provider } {
+  const provider = activeProvider()
+  if (provider === 'baidu') {
+    const c = readBaiduPrefs()
+    return { configured: !!c.ak && !!c.sk, model: c.endpoint, provider }
+  }
+  const p = readXfPrefs()
+  return { configured: !!p.apiKey, model: p.model, provider }
+}
+
+export async function recognizeCloud(buf: Buffer): Promise<CloudOcrLine[]> {
+  return activeProvider() === 'baidu' ? recognizeBaidu(buf) : recognizeXf(buf)
+}
+
+export async function testCloud(): Promise<{ ok: boolean; message: string }> {
+  return activeProvider() === 'baidu' ? testBaidu() : testXf()
 }

@@ -30,6 +30,7 @@ import { registerBackupIpc } from './ipc/backup'
 import { registerTagIpc } from './ipc/tag'
 import { registerIncSyncIpc } from './ipc/incSync'
 import { registerOcrIpc } from './ipc/ocr'
+import { registerScreenshotIpc } from './ipc/screenshot'
 import { createBallWindow, registerFloatIpc } from './floatBall'
 import { downloadRemoteImage } from './services/onlineSearch'
 
@@ -234,6 +235,7 @@ app.whenReady().then(() => {
   registerTagIpc()
   registerIncSyncIpc()
   registerOcrIpc()
+  registerScreenshotIpc()
   registerFloatIpc()
 
   // 渲染层关窗询问弹窗的决定回传
