@@ -61,7 +61,8 @@ import type {
   TagDeleteMode,
   IncSyncResult,
   IncSyncProgress,
-  OcrLine
+  OcrLine,
+  EngineScanResult
 } from '@shared/types'
 
 interface MediaQuery {
@@ -431,8 +432,14 @@ interface MookApi {
   }
   ocr: {
     capture: () => Promise<OcrLine[] | null>
-    cloudConfig: () => Promise<{ configured: boolean; model: string; provider: 'xf' | 'baidu' }>
+    cloudConfig: () => Promise<{
+      configured: boolean
+      model: string
+      provider: 'xf' | 'baidu' | 'local'
+    }>
     cloudTest: () => Promise<{ ok: boolean; message: string }>
+    enginesScan: (force?: boolean) => Promise<EngineScanResult>
+    engineOpenDir: () => Promise<{ ok: boolean; error: string }>
     overlayInit: (
       displayId: string
     ) => Promise<{

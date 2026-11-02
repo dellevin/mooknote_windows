@@ -796,7 +796,8 @@ interface OcrProvider {
 }
 const ocrProviders: OcrProvider[] = [
   { id: 'xfxingchen', label: '讯飞星辰 MaaS', ready: () => xfConfigured.value },
-  { id: 'baidu', label: '百度智能云', ready: () => baiduConfigured.value }
+  { id: 'baidu', label: '百度智能云', ready: () => baiduConfigured.value },
+  { id: 'local', label: '本地 OCR', ready: () => localReady.value }
 ]
 const ocrProvider = ref('xfxingchen')
 const ocrProviderKeyword = ref('')
@@ -814,7 +815,8 @@ function ocrDotClass(id: string): 'on' | 'ready' | 'none' {
 // 切换提供方即写回 prefs：识别与「测试连接」都按当前提供方走
 async function onPickOcrProvider(id: string): Promise<void> {
   ocrProvider.value = id
-  await window.mook.prefs.set('ocrProvider', id === 'baidu' ? 'baidu' : 'xf')
+  const provider = id === 'baidu' ? 'baidu' : id === 'local' ? 'local' : 'xf'
+  await window.mook.prefs.set('ocrProvider', provider)
 }
 
 // ── 云端 OCR：讯飞星辰视觉大模型，凭证仅保存在本地 prefs ──
@@ -840,10 +842,81 @@ const BAIDU_ENDPOINT_OPTIONS = [
   { label: '通用文字识别（高精度含位置版）', value: 'accurate' }
 ]
 
+// ── 本地 OCR：RapidOCR-json / PaddleOCR-json 子进程，引擎用户手动放入 resources ──
+type EngineState = Awaited<ReturnType<typeof window.mook.ocr.enginesScan>>['engines']['rapid']
+const engineScan = ref<Awaited<ReturnType<typeof window.mook.ocr.enginesScan>> | null>(null)
+const localEngineId = ref<'rapid' | 'paddle'>('rapid')
+const localLanguageKey = ref('')
+const localAngle = ref(true)
+const localMaxSideLen = ref(1024)
+const localReady = ref(false)
+const LOCAL_SIDE_OPTIONS = [
+  { label: '1024（更快）', value: 1024 },
+  { label: '2048（更清晰）', value: 2048 },
+  { label: '9999（不限制）', value: 9999 }
+]
+const currentEngine = computed<EngineState | null>(
+  () => engineScan.value?.engines[localEngineId.value] ?? null
+)
+const localLanguageOptions = computed(() =>
+  (currentEngine.value?.languages ?? []).map((l) => ({ label: l.label, value: l.key }))
+)
+
+async function scanLocalEngines(force = true): Promise<void> {
+  engineScan.value = await window.mook.ocr.enginesScan(force)
+  // 已保存的引擎不存在/未就绪时，自动落到可用的那个
+  const cur = engineScan.value.engines[localEngineId.value]
+  if (!cur || cur.status !== 'ready') {
+    const other =
+      engineScan.value.engines[localEngineId.value === 'rapid' ? 'paddle' : 'rapid']
+    if (other.status === 'ready') localEngineId.value = other.id
+  }
+  const eng = engineScan.value.engines[localEngineId.value]
+  localReady.value = eng.status === 'ready'
+  if (eng.status === 'ready') {
+    const has = eng.languages.some((l) => l.key === localLanguageKey.value)
+    if (!has) localLanguageKey.value = eng.languages[0].key
+  }
+}
+
+async function onPickLocalEngine(id: 'rapid' | 'paddle'): Promise<void> {
+  localEngineId.value = id
+  const eng = engineScan.value?.engines[id]
+  localLanguageKey.value = eng?.languages[0]?.key ?? ''
+  await persistLocalOcr()
+  await scanLocalEngines(false)
+}
+
+async function persistLocalOcr(): Promise<void> {
+  const p = window.mook.prefs.set.bind(window.mook.prefs)
+  await Promise.all([
+    p('localOcrEngine', localEngineId.value),
+    p('localOcrLanguage', localLanguageKey.value),
+    p('localOcrAngle', localAngle.value),
+    p('localOcrMaxSideLen', localMaxSideLen.value)
+  ])
+}
+
+async function refreshEngines(): Promise<void> {
+  await scanLocalEngines(true)
+  message.success('已重新扫描引擎目录')
+}
+async function openEngineDir(): Promise<void> {
+  const r = await window.mook.ocr.engineOpenDir()
+  if (!r.ok) message.error('打开目录失败：' + r.error)
+}
+// 模板安全包装：NSwitch update:value
+function onLocalAngleToggle(v: boolean): void {
+  localAngle.value = v
+  void persistLocalOcr()
+}
+
 async function loadCloudOcr(): Promise<void> {
-  const cfg = await window.mook.ocr.cloudConfig()
-  ocrProvider.value = cfg.provider === 'baidu' ? 'baidu' : 'xfxingchen'
   const p = window.mook.prefs
+  await scanLocalEngines(true)
+  const cfg = await window.mook.ocr.cloudConfig()
+  const providerMap = { xf: 'xfxingchen', baidu: 'baidu', local: 'local' } as const
+  ocrProvider.value = providerMap[cfg.provider] ?? 'xfxingchen'
   xfApiKey.value = await p.get('xfOcrApiKey', '')
   xfEndpoint.value = await p.get('xfOcrEndpoint', '')
   xfModel.value = (await p.get('xfOcrModel', '')) || 'xoppaddleocrv16'
@@ -855,6 +928,17 @@ async function loadCloudOcr(): Promise<void> {
     (cfg.provider === 'baidu' ? cfg.model : '') ||
     'general_basic'
   baiduConfigured.value = cfg.provider === 'baidu' ? cfg.configured : !!baiduAk.value && !!baiduSk.value
+  // 本地引擎偏好
+  localEngineId.value = (await p.get('localOcrEngine', 'rapid')) === 'paddle' ? 'paddle' : 'rapid'
+  localAngle.value = (await p.get('localOcrAngle', true)) !== false
+  const side = Number(await p.get('localOcrMaxSideLen', 1024))
+  localMaxSideLen.value = side > 0 ? side : 1024
+  await scanLocalEngines(false)
+  const eng = engineScan.value?.engines[localEngineId.value]
+  const savedLang = String(await p.get('localOcrLanguage', ''))
+  localLanguageKey.value =
+    eng?.languages.some((l) => l.key === savedLang) ? savedLang : (eng?.languages[0]?.key ?? '')
+  localReady.value = eng?.status === 'ready'
 }
 async function saveCloudCredentials(): Promise<void> {
   const p = window.mook.prefs.set.bind(window.mook.prefs)
@@ -865,11 +949,18 @@ async function saveCloudCredentials(): Promise<void> {
           p('baiduOcrSk', baiduSk.value.trim()),
           p('baiduOcrEndpoint', baiduEndpoint.value)
         ]
-      : [
-          p('xfOcrApiKey', xfApiKey.value.trim()),
-          p('xfOcrEndpoint', xfEndpoint.value.trim()),
-          p('xfOcrModel', xfModel.value.trim())
-        ]
+      : ocrProvider.value === 'local'
+        ? [
+            p('localOcrEngine', localEngineId.value),
+            p('localOcrLanguage', localLanguageKey.value),
+            p('localOcrAngle', localAngle.value),
+            p('localOcrMaxSideLen', localMaxSideLen.value)
+          ]
+        : [
+            p('xfOcrApiKey', xfApiKey.value.trim()),
+            p('xfOcrEndpoint', xfEndpoint.value.trim()),
+            p('xfOcrModel', xfModel.value.trim())
+          ]
   await Promise.all(tasks)
   await loadCloudOcr()
   message.success('OCR 配置已保存')
@@ -1571,6 +1662,91 @@ onMounted(async () => {
                     </NSpace>
                   </section>
                 </div>
+
+                <div v-else-if="ocrProvider === 'local'" class="ocr-modules">
+                  <section class="ocr-module">
+                    <header class="ocr-module-head">
+                      <div class="ocr-module-name">
+                        <span class="ocr-module-title">本地 OCR</span>
+                        <NTag size="small" :type="localReady ? 'success' : 'error'" :bordered="false">
+                          {{ localReady ? '引擎就绪' : '引擎未就绪' }}
+                        </NTag>
+                      </div>
+                      <span class="ocr-module-desc">
+                        离线识别，引擎需手动下载放入引擎目录后点「刷新检测」
+                      </span>
+                    </header>
+
+                    <div class="form-row">
+                      <label class="lbl">引擎</label>
+                      <div class="ctrl local-engine-row">
+                        <button
+                          v-for="en in engineScan ? [engineScan.engines.rapid, engineScan.engines.paddle] : []"
+                          :key="en.id"
+                          type="button"
+                          class="local-engine-chip"
+                          :class="{ on: localEngineId === en.id }"
+                          :disabled="en.status !== 'ready'"
+                          :title="en.message"
+                          @click="onPickLocalEngine(en.id)"
+                        >
+                          <span class="le-dot" :class="en.status" />
+                          {{ en.label }}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div v-if="currentEngine && currentEngine.status !== 'ready'" class="local-warn">
+                      {{ currentEngine.label }}：{{ currentEngine.message }}
+                    </div>
+
+                    <div class="form-row">
+                      <label class="lbl">语言模型</label>
+                      <NSelect
+                        v-model:value="localLanguageKey"
+                        size="small"
+                        class="ctrl"
+                        :options="localLanguageOptions"
+                        :disabled="!localReady"
+                        placeholder="未检测到可用模型"
+                        @update:value="persistLocalOcr"
+                      />
+                    </div>
+                    <div class="form-row">
+                      <label class="lbl">最大边长</label>
+                      <NSelect
+                        v-model:value="localMaxSideLen"
+                        size="small"
+                        class="ctrl"
+                        :options="LOCAL_SIDE_OPTIONS"
+                        @update:value="persistLocalOcr"
+                      />
+                    </div>
+                    <div class="form-row">
+                      <label class="lbl">方向分类</label>
+                      <NSwitch
+                        :value="localAngle"
+                        @update:value="onLocalAngleToggle"
+                      />
+                    </div>
+
+                    <div class="local-dir">
+                      <span class="local-dir-label">引擎目录：</span>
+                      <span class="path">{{ engineScan?.roots[0] ?? '' }}</span>
+                    </div>
+
+                    <NSpace :size="10" class="save-row">
+                      <NButton size="small" type="primary" :disabled="!localReady" @click="saveCloudCredentials">
+                        保存
+                      </NButton>
+                      <NButton size="small" :loading="cloudTesting" :disabled="!localReady" @click="testCurrentCloud">
+                        测试连接
+                      </NButton>
+                      <NButton size="small" @click="refreshEngines">刷新检测</NButton>
+                      <NButton size="small" @click="openEngineDir">打开引擎目录</NButton>
+                    </NSpace>
+                  </section>
+                </div>
               </template>
             </div>
           </div>
@@ -1842,6 +2018,62 @@ onMounted(async () => {
 .ocr-provider-empty {
   font-size: 12px;
   color: var(--text-dim, #9aa0ac);
+}
+/* 本地 OCR 引擎选择 */
+.local-engine-row {
+  display: flex;
+  gap: 8px;
+}
+.local-engine-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(17, 17, 17, 0.14);
+  background: var(--surface, #fff);
+  color: var(--text-strong, #1f2329);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.local-engine-chip.on {
+  border-color: var(--accent, #2563eb);
+  color: var(--accent, #2563eb);
+}
+.local-engine-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.le-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.le-dot.ready {
+  background: #18a058;
+}
+.le-dot.incomplete {
+  background: #f0a020;
+}
+.le-dot.missing {
+  background: #d03050;
+}
+.local-warn {
+  margin: 2px 0 8px;
+  font-size: 12.5px;
+  color: #d03050;
+}
+.local-dir {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 6px;
+  font-size: 12px;
+}
+.local-dir-label {
+  color: var(--text-dim, #9aa0ac);
+  flex: 0 0 auto;
 }
 .ocr-modules {
   display: flex;

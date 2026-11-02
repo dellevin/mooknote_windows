@@ -1,5 +1,8 @@
 import { prefs } from '../prefs'
 import type { CloudOcrLine } from '../../shared/types'
+import { scanEngines, getCachedScan } from './localOcr/engineScanner'
+import { recognizeLocal } from './localOcr/engineProcess'
+import type { LocalEngineId } from './localOcr/engines'
 
 // 云端 OCR：支持多个提供方，由 prefs.ocrProvider 决定当前使用哪一个。
 //  - xf：讯飞星辰 MaaS（OpenAI 兼容的视觉理解大模型）
@@ -9,7 +12,7 @@ const TIMEOUT_MS = 60000
 const DEFAULT_ENDPOINT = 'https://maas-api.cn-huabei-1.xf-yun.com/v2/chat/completions'
 const DEFAULT_MODEL = 'xoppaddleocrv16'
 
-type Provider = 'xf' | 'baidu'
+type Provider = 'xf' | 'baidu' | 'local'
 
 class CloudOcrError extends Error {}
 
@@ -18,7 +21,9 @@ function g(k: string): string {
 }
 
 function activeProvider(): Provider {
-  return g('ocrProvider') === 'baidu' ? 'baidu' : 'xf'
+  const p = g('ocrProvider')
+  if (p === 'baidu' || p === 'local') return p
+  return 'xf'
 }
 
 // ── 讯飞星辰 ────────────────────────────────────────────────
@@ -267,6 +272,54 @@ async function testBaidu(): Promise<{ ok: boolean; message: string }> {
   }
 }
 
+// ── 本地引擎 ────────────────────────────────────────────────
+function readLocalPrefs(): {
+  engineId: LocalEngineId
+  languageKey: string
+  angle: boolean
+  maxSideLen: number
+} {
+  const engineId: LocalEngineId = g('localOcrEngine') === 'paddle' ? 'paddle' : 'rapid'
+  const side = Number(prefs.get('localOcrMaxSideLen', 1024))
+  return {
+    engineId,
+    languageKey: g('localOcrLanguage'),
+    angle: String(prefs.get('localOcrAngle', 'true')) !== 'false',
+    maxSideLen: side > 0 ? side : 1024
+  }
+}
+
+
+async function recognizeLocalBuf(buf: Buffer): Promise<CloudOcrLine[]> {
+  const lp = readLocalPrefs()
+  const scan = await scanEngines()
+  const engine = scan.engines[lp.engineId]
+  if (engine.status !== 'ready') {
+    throw new CloudOcrError(`本地 OCR 引擎不可用：${engine.message}`)
+  }
+  const language =
+    engine.languages.find((l) => l.key === lp.languageKey) ?? engine.languages[0]
+  return recognizeLocal({
+    buf,
+    engineId: lp.engineId,
+    exePath: engine.exePath,
+    options: { language, angle: lp.angle, maxSideLen: lp.maxSideLen }
+  })
+}
+
+async function testLocal(): Promise<{ ok: boolean; message: string }> {
+  try {
+    const lp = readLocalPrefs()
+    const engine = (await scanEngines(true)).engines[lp.engineId]
+    if (engine.status !== 'ready') return { ok: false, message: `引擎不可用：${engine.message}` }
+    // 用 50x50 空白图跑一次真实流程：能拉起握手并返回 101/100 即证明引擎可用
+    const lines = await recognizeLocalBuf(TINY_PNG)
+    return { ok: true, message: `连接成功，${engine.label} 就绪（${lines.length} 行）` }
+  } catch (e) {
+    return { ok: false, message: String((e as Error)?.message ?? e) }
+  }
+}
+
 // ── 统一入口 ────────────────────────────────────────────────
 export function getCloudConfig(): { configured: boolean; model: string; provider: Provider } {
   const provider = activeProvider()
@@ -274,14 +327,36 @@ export function getCloudConfig(): { configured: boolean; model: string; provider
     const c = readBaiduPrefs()
     return { configured: !!c.ak && !!c.sk, model: c.endpoint, provider }
   }
+  if (provider === 'local') {
+    // 本地就绪以最近一次扫描缓存为准（设置页加载与 App 启动时会先 scan）
+    const lp = readLocalPrefs()
+    const engine = getCachedScan()?.engines[lp.engineId]
+    return { configured: engine?.status === 'ready', model: lp.engineId, provider }
+  }
   const p = readXfPrefs()
   return { configured: !!p.apiKey, model: p.model, provider }
 }
 
+/** 异步版本：强制扫盘后返回当前配置状态（IPC 用） */
+export async function getCloudConfigAsync(): Promise<{
+  configured: boolean
+  model: string
+  provider: Provider
+}> {
+  if (activeProvider() === 'local') await scanEngines(true)
+  return getCloudConfig()
+}
+
 export async function recognizeCloud(buf: Buffer): Promise<CloudOcrLine[]> {
-  return activeProvider() === 'baidu' ? recognizeBaidu(buf) : recognizeXf(buf)
+  const provider = activeProvider()
+  if (provider === 'baidu') return recognizeBaidu(buf)
+  if (provider === 'local') return recognizeLocalBuf(buf)
+  return recognizeXf(buf)
 }
 
 export async function testCloud(): Promise<{ ok: boolean; message: string }> {
-  return activeProvider() === 'baidu' ? testBaidu() : testXf()
+  const provider = activeProvider()
+  if (provider === 'baidu') return testBaidu()
+  if (provider === 'local') return testLocal()
+  return testXf()
 }

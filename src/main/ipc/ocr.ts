@@ -1,6 +1,8 @@
 import path from 'node:path'
-import { BrowserWindow, clipboard, desktopCapturer, ipcMain, screen } from 'electron'
-import { getCloudConfig, recognizeCloud, testCloud } from '../services/cloudOcrService'
+import fs from 'node:fs/promises'
+import { BrowserWindow, clipboard, desktopCapturer, ipcMain, screen, shell } from 'electron'
+import { getCloudConfigAsync, recognizeCloud, testCloud } from '../services/cloudOcrService'
+import { scanEngines, primaryEngineDir } from '../services/localOcr/engineScanner'
 import { hidePanel, setBallBusy } from '../floatBall'
 import type { OcrLine } from '../../shared/types'
 
@@ -196,11 +198,28 @@ export function registerOcrIpc(): void {
     return { ok: true }
   })
 
-  // 悬浮球面板：云端 OCR 当前提供方与配置状态（决定菜单项是否可用）
-  ipcMain.handle('ocr:cloud-config', () => getCloudConfig())
+  // 悬浮球面板：当前 OCR 提供方与配置状态（决定菜单项是否可用）；本地引擎需扫盘
+  ipcMain.handle('ocr:cloud-config', () => getCloudConfigAsync())
 
   // 设置页：测试已保存的讯飞星辰凭证是否有效
   ipcMain.handle('ocr:cloud-test', () => testCloud())
+
+  // 设置页：扫描本地 OCR 引擎（force 重新读盘），返回两引擎状态与可选语言
+  ipcMain.handle('ocr:engines-scan', async (_e, force?: boolean) => {
+    return scanEngines(force !== false)
+  })
+
+  // 设置页：打开用户放置引擎的目录（不存在则创建）
+  ipcMain.handle('ocr:engine-open-dir', async () => {
+    const dir = primaryEngineDir()
+    try {
+      await fs.mkdir(dir, { recursive: true })
+    } catch {
+      // 已存在可忽略
+    }
+    const err = await shell.openPath(dir)
+    return { ok: !err, error: err || '' }
+  })
 
   // 选区窗口：Esc / 右键取消
   ipcMain.handle('ocr:overlay-cancel', () => {

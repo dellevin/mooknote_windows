@@ -712,3 +712,28 @@ export interface OcrLine {
 
 // 云端 OCR 识别结果行
 export type CloudOcrLine = OcrLine
+
+// ========== 本地 OCR 引擎（RapidOCR-json / PaddleOCR-json） ==========
+export type LocalOcrEngineId = 'rapid' | 'paddle'
+export type LocalEngineStatusKind = 'ready' | 'incomplete' | 'missing'
+
+export interface LocalLanguage {
+  key: string
+  label: string
+  payload: string
+}
+
+export interface DiscoveredEngine {
+  id: LocalOcrEngineId
+  label: string
+  status: LocalEngineStatusKind
+  exePath: string
+  dir: string
+  languages: LocalLanguage[]
+  message: string
+}
+
+export interface EngineScanResult {
+  roots: string[]
+  engines: Record<LocalOcrEngineId, DiscoveredEngine>
+}

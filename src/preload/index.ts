@@ -55,7 +55,8 @@ import type {
   TagDeleteMode,
   IncSyncResult,
   IncSyncProgress,
-  OcrLine
+  OcrLine,
+  EngineScanResult
 } from '../shared/types'
 
 interface MediaQuery {
@@ -559,10 +560,17 @@ const api = {
   // OCR：悬浮球发起截屏选区识别
   ocr: {
     capture: (): Promise<OcrLine[] | null> => ipcRenderer.invoke('ocr:capture'),
-    cloudConfig: (): Promise<{ configured: boolean; model: string; provider: 'xf' | 'baidu' }> =>
-      ipcRenderer.invoke('ocr:cloud-config'),
+    cloudConfig: (): Promise<{
+      configured: boolean
+      model: string
+      provider: 'xf' | 'baidu' | 'local'
+    }> => ipcRenderer.invoke('ocr:cloud-config'),
     cloudTest: (): Promise<{ ok: boolean; message: string }> =>
       ipcRenderer.invoke('ocr:cloud-test'),
+    enginesScan: (force?: boolean): Promise<EngineScanResult> =>
+      ipcRenderer.invoke('ocr:engines-scan', force),
+    engineOpenDir: (): Promise<{ ok: boolean; error: string }> =>
+      ipcRenderer.invoke('ocr:engine-open-dir'),
     overlayInit: (
       displayId: string
     ): Promise<{
