@@ -710,6 +710,14 @@ export interface OcrLine {
   confidence: number
 }
 
+// 屏幕取色结果
+export interface PickedColor {
+  r: number
+  g: number
+  b: number
+  hex: string
+}
+
 // 云端 OCR 识别结果行
 export type CloudOcrLine = OcrLine
 
@@ -736,4 +744,41 @@ export interface DiscoveredEngine {
 export interface EngineScanResult {
   roots: string[]
   engines: Record<LocalOcrEngineId, DiscoveredEngine>
+}
+
+// ---- 电子书阅读器（独立 reader.db） ----
+export interface ReaderBook {
+  id: string
+  title: string
+  author: string | null
+  format: string
+  fileName: string
+  originalName: string | null
+  coverPath: string | null
+  coverCustom: boolean
+  importedAt: number
+  lastReadAt: number | null
+  percentage: number
+  chapterTitle: string | null
+}
+
+export interface ReaderBookInput {
+  filePath: string
+}
+
+export interface ReaderImportResult {
+  ok: boolean
+  book?: ReaderBook
+  error?: string
+}
+
+export interface ReaderAnnotation {
+  id: string
+  bookId: string
+  type: string
+  value: string
+  color: string | null
+  note: string | null
+  chapter: string | null
+  createdAt: number
 }

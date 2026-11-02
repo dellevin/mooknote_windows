@@ -78,23 +78,12 @@ const history: HistEntry[] = []
 
 // 马赛克层：覆盖整块屏幕的后备画布，放进选框容器靠 overflow:hidden 裁掉选框外部分
 const mosaicEl = ref<HTMLCanvasElement | null>(null)
-const screenW = ref(window.innerWidth)
-const screenH = ref(window.innerHeight)
 let mosaicCtx: CanvasRenderingContext2D | null = null
 let mSnapshot: ImageData | null = null
 
-// 设置中配置的工具条按钮显隐（prefs: shotTools）
-const ALL_TOOL_KEYS = ['rect', 'ellipse', 'arrow', 'brush', 'mosaic', 'undo', 'ocr', 'save', 'pin', 'close']
-const visibleTools = ref<Set<string>>(new Set(ALL_TOOL_KEYS))
-function toolOn(key: string): boolean {
-  return visibleTools.value.has(key)
-}
-// 颜色选择器只在至少一个标注工具可见时显示
-const colorRowVisible = computed(() =>
-  ['rect', 'ellipse', 'arrow', 'brush', 'mosaic'].some((k) => visibleTools.value.has(k))
-)
-// 所有按钮都被关掉时连工具条都不显示（仍可右键 / Esc 退出）
-const toolbarVisible = computed(() => visibleTools.value.size > 0)
+// 工具条固定显示全部工具
+const colorRowVisible = computed(() => true)
+const toolbarVisible = computed(() => true)
 
 function pointInRect(x: number, y: number, r: Rect | null): boolean {
   return !!r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h
@@ -187,9 +176,18 @@ function relPos(e: PointerEvent): { x: number; y: number } {
   return { x: e.clientX - r.x, y: e.clientY - r.y }
 }
 
-// 在马赛克画布上以 (cx,cy)（屏幕 CSS 坐标）为中心盖一块像素化方块
+// 在马赛克画布上以 (cx,cy)（相对选区的 CSS 坐标）为中心盖一块像素化方块。
+// (ox,oy) 是选区原点在屏幕中的坐标，用于换算回原图取像素。
 const MOSAIC_BLOCK = 16
-function stampMosaic(cx: number, cy: number, img: HTMLImageElement, kx: number, ky: number): void {
+function stampMosaic(
+  cx: number,
+  cy: number,
+  img: HTMLImageElement,
+  kx: number,
+  ky: number,
+  ox: number,
+  oy: number
+): void {
   mosaicCtx = mosaicEl.value?.getContext('2d') ?? null
   if (!mosaicCtx) return
   const x0 = cx - MOSAIC_BLOCK / 2
@@ -203,8 +201,8 @@ function stampMosaic(cx: number, cy: number, img: HTMLImageElement, kx: number, 
   tctx.imageSmoothingEnabled = true
   tctx.drawImage(
     img,
-    Math.max(0, x0 * kx),
-    Math.max(0, y0 * ky),
+    Math.max(0, (ox + x0) * kx),
+    Math.max(0, (oy + y0) * ky),
     MOSAIC_BLOCK * kx,
     MOSAIC_BLOCK * ky,
     0,
@@ -216,18 +214,26 @@ function stampMosaic(cx: number, cy: number, img: HTMLImageElement, kx: number, 
   mosaicCtx.drawImage(tmp, 0, 0, 5, 5, x0, y0, MOSAIC_BLOCK, MOSAIC_BLOCK)
 }
 let lastStamp = { x: 0, y: 0 }
-function strokeMosaicTo(x: number, y: number, img: HTMLImageElement, kx: number, ky: number): void {
+function strokeMosaicTo(
+  x: number,
+  y: number,
+  img: HTMLImageElement,
+  kx: number,
+  ky: number,
+  ox: number,
+  oy: number
+): void {
   const dx = x - lastStamp.x
   const dy = y - lastStamp.y
   const dist = Math.hypot(dx, dy)
   const step = MOSAIC_BLOCK / 2
   if (dist < step) {
-    stampMosaic(x, y, img, kx, ky)
+    stampMosaic(x, y, img, kx, ky, ox, oy)
     return
   }
   const n = Math.ceil(dist / step)
   for (let i = 1; i <= n; i++) {
-    stampMosaic(lastStamp.x + (dx * i) / n, lastStamp.y + (dy * i) / n, img, kx, ky)
+    stampMosaic(lastStamp.x + (dx * i) / n, lastStamp.y + (dy * i) / n, img, kx, ky, ox, oy)
   }
   lastStamp = { x, y }
 }
@@ -253,16 +259,16 @@ async function startAnnotation(e: PointerEvent): Promise<boolean> {
     const pxW = pixels.value?.width || Math.round(window.innerWidth * scaleFactor.value)
     const pxH = pixels.value?.height || Math.round(window.innerHeight * scaleFactor.value)
     mosaicCtx = mosaicEl.value?.getContext('2d') ?? null
-    mSnapshot = mosaicCtx?.getImageData(0, 0, window.innerWidth, window.innerHeight) ?? null
-    lastStamp = { x: e.clientX, y: e.clientY }
-    stampMosaic(e.clientX, e.clientY, img, pxW / window.innerWidth, pxH / window.innerHeight)
+    mSnapshot = mosaicCtx?.getImageData(0, 0, Math.ceil(r.w), Math.ceil(r.h)) ?? null
+    lastStamp = { x: p.x, y: p.y }
+    stampMosaic(p.x, p.y, img, pxW / window.innerWidth, pxH / window.innerHeight, r.x, r.y)
     ;(e.target as Element).setPointerCapture?.(e.pointerId)
-    // 把 img/kx/ky 挂到指针事件上不方便，改用闭包变量
-    mosaicPaint = { img, kx: pxW / window.innerWidth, ky: pxH / window.innerHeight }
+    // 把 img/kx/ky 与选区原点挂到闭包变量上
+    mosaicPaint = { img, kx: pxW / window.innerWidth, ky: pxH / window.innerHeight, ox: r.x, oy: r.y }
   }
   return true
 }
-let mosaicPaint: { img: HTMLImageElement; kx: number; ky: number } | null = null
+let mosaicPaint: { img: HTMLImageElement; kx: number; ky: number; ox: number; oy: number } | null = null
 
 function updateAnnotation(e: PointerEvent): void {
   if (!drawing || !rect.value) return
@@ -351,14 +357,15 @@ async function onPointerDown(e: PointerEvent): Promise<void> {
   history.length = 0
   if (mosaicEl.value) {
     const c = mosaicEl.value.getContext('2d')
-    c?.clearRect(0, 0, window.innerWidth, window.innerHeight)
+    c?.clearRect(0, 0, mosaicEl.value.width, mosaicEl.value.height)
   }
   failed.value = ''
   tool.value = 'select'
 }
 function onPointerMove(e: PointerEvent): void {
   if (drawing && tool.value === 'mosaic' && mosaicPaint) {
-    strokeMosaicTo(e.clientX, e.clientY, mosaicPaint.img, mosaicPaint.kx, mosaicPaint.ky)
+    const p = relPos(e)
+    strokeMosaicTo(p.x, p.y, mosaicPaint.img, mosaicPaint.kx, mosaicPaint.ky, mosaicPaint.ox, mosaicPaint.oy)
     return
   }
   if (drawing) {
@@ -440,19 +447,9 @@ async function composite(withAnnotations: boolean): Promise<HTMLCanvasElement> {
     canvas.height
   )
   if (withAnnotations && mosaicEl.value) {
-    // 马赛克层（屏幕坐标 → 裁掉选区外）
+    // 马赛克层画布与选区等大、坐标已是选区相对坐标，直接整张铺满
     ctx.imageSmoothingEnabled = false
-    ctx.drawImage(
-      mosaicEl.value,
-      Math.round(r.x * kx),
-      Math.round(r.y * ky),
-      canvas.width,
-      canvas.height,
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    )
+    ctx.drawImage(mosaicEl.value, 0, 0, canvas.width, canvas.height)
     ctx.imageSmoothingEnabled = true
     const all = draft.value ? [...shapes.value, draft.value] : shapes.value
     const k = (kx + ky) / 2
@@ -633,20 +630,10 @@ const svgStyle = computed(() => {
   if (!r) return {}
   return { width: r.w + 'px', height: r.h + 'px' }
 })
-const mosaicStyle = computed(() => {
-  const r = rect.value
-  if (!r) return {}
-  return {
-    width: window.innerWidth + 'px',
-    height: window.innerHeight + 'px',
-    left: -r.x + 'px',
-    top: -r.y + 'px'
-  }
-})
 // 模板用的扁平化、带判别字段的图形视图（避免模板里写 TS as 断言）
 type ViewShape =
   | { id: number; kind: 'rect' | 'ellipse'; color: string; sw: number; x: number; y: number; w: number; h: number }
-  | { id: number; kind: 'arrow'; color: string; sw: number; x1: number; y1: number; x2: number; y2: number }
+  | { id: number; kind: 'arrow'; color: string; sw: number; x1: number; y1: number; x2: number; y2: number; ax1: number; ay1: number; ax2: number; ay2: number }
   | { id: number; kind: 'brush'; color: string; sw: number; points: string }
 
 const viewShapes = computed<ViewShape[]>(() => {
@@ -656,7 +643,23 @@ const viewShapes = computed<ViewShape[]>(() => {
       return { id: s.id, kind: s.tool, color: s.color, sw: s.sw, x: s.x, y: s.y, w: s.w, h: s.h }
     }
     if (s.tool === 'arrow') {
-      return { id: s.id, kind: 'arrow', color: s.color, sw: s.sw, x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2 }
+      const ang = Math.atan2(s.y2 - s.y1, s.x2 - s.x1)
+      const head = Math.max(10, s.sw * 5)
+      const wing = Math.PI / 6
+      return {
+        id: s.id,
+        kind: 'arrow',
+        color: s.color,
+        sw: s.sw,
+        x1: s.x1,
+        y1: s.y1,
+        x2: s.x2,
+        y2: s.y2,
+        ax1: s.x2 + head * Math.cos(ang + Math.PI - wing),
+        ay1: s.y2 + head * Math.sin(ang + Math.PI - wing),
+        ax2: s.x2 + head * Math.cos(ang + Math.PI + wing),
+        ay2: s.y2 + head * Math.sin(ang + Math.PI + wing)
+      }
     }
     return { id: s.id, kind: 'brush', color: s.color, sw: s.sw, points: s.pts.map((p) => `${p.x},${p.y}`).join(' ') }
   })
@@ -676,8 +679,6 @@ onMounted(async () => {
   bg.value = info.dataUrl
   scaleFactor.value = info.scaleFactor
   pixels.value = info.pixels
-  const savedTools = await window.mook.prefs.get<string[]>('shotTools', [...ALL_TOOL_KEYS])
-  if (Array.isArray(savedTools) && savedTools.length) visibleTools.value = new Set(savedTools)
   window.addEventListener('keydown', onKey)
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
@@ -699,7 +700,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       <img class="bg-dim" :src="bg" draggable="false" />
       <div v-if="rect" class="sel" :style="selStyle">
         <img class="bg-bright" :src="bg" draggable="false" :style="brightStyle" />
-        <canvas ref="mosaicEl" class="mosaic-layer" :width="screenW" :height="screenH" :style="mosaicStyle"></canvas>
+        <canvas ref="mosaicEl" class="mosaic-layer" :width="Math.ceil(rect.w)" :height="Math.ceil(rect.h)"></canvas>
         <svg class="shape-layer" :style="svgStyle" :viewBox="`0 0 ${rect.w} ${rect.h}`" preserveAspectRatio="none">
           <template v-for="s in viewShapes" :key="s.id">
             <rect
@@ -713,11 +714,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
               :rx="Math.abs(s.w) / 2" :ry="Math.abs(s.h) / 2"
               fill="none" :stroke="s.color" :stroke-width="s.sw"
             />
-            <line
-              v-else-if="s.kind === 'arrow'"
-              :x1="s.x1" :y1="s.y1" :x2="s.x2" :y2="s.y2"
-              :stroke="s.color" :stroke-width="s.sw" stroke-linecap="round"
-            />
+            <g v-else-if="s.kind === 'arrow'" :stroke="s.color" :stroke-width="s.sw"
+              stroke-linecap="round" fill="none">
+              <line :x1="s.x1" :y1="s.y1" :x2="s.x2" :y2="s.y2" />
+              <line :x1="s.x2" :y1="s.y2" :x2="s.ax1" :y2="s.ay1" />
+              <line :x1="s.x2" :y1="s.y2" :x2="s.ax2" :y2="s.ay2" />
+            </g>
             <polyline
               v-else-if="s.kind === 'brush'"
               :points="s.points"
@@ -738,19 +740,19 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         @pointermove.stop
         @pointerup.stop
       >
-        <button v-if="toolOn('rect')" class="t-btn" :class="{ on: tool === 'rect' }" title="矩形" @click="pickTool('rect')">
+        <button class="t-btn" :class="{ on: tool === 'rect' }" title="矩形" @click="pickTool('rect')">
           <svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
         </button>
-        <button v-if="toolOn('ellipse')" class="t-btn" :class="{ on: tool === 'ellipse' }" title="椭圆" @click="pickTool('ellipse')">
+        <button class="t-btn" :class="{ on: tool === 'ellipse' }" title="椭圆" @click="pickTool('ellipse')">
           <svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8" ry="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
         </button>
-        <button v-if="toolOn('arrow')" class="t-btn" :class="{ on: tool === 'arrow' }" title="箭头" @click="pickTool('arrow')">
+        <button class="t-btn" :class="{ on: tool === 'arrow' }" title="箭头" @click="pickTool('arrow')">
           <svg viewBox="0 0 24 24"><path d="M4 18 L19 5 M11 5h8v8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <button v-if="toolOn('brush')" class="t-btn" :class="{ on: tool === 'brush' }" title="画笔" @click="pickTool('brush')">
+        <button class="t-btn" :class="{ on: tool === 'brush' }" title="画笔" @click="pickTool('brush')">
           <svg viewBox="0 0 24 24"><path d="M4 20c3-1 5-3 7-5l5-5-3-3-5 5c-2 2-4 4-5 7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
         </button>
-        <button v-if="toolOn('mosaic')" class="t-btn" :class="{ on: tool === 'mosaic' }" title="马赛克" @click="pickTool('mosaic')">
+        <button class="t-btn" :class="{ on: tool === 'mosaic' }" title="马赛克" @click="pickTool('mosaic')">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <rect x="4" y="4" width="5" height="5"/><rect x="10" y="4" width="4" height="4" opacity=".55"/><rect x="15" y="4" width="5" height="5"/>
             <rect x="4" y="10" width="4" height="4" opacity=".55"/><rect x="9" y="9" width="6" height="6"/><rect x="16" y="10" width="4" height="4" opacity=".55"/>
@@ -767,23 +769,23 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             ></button>
           </span>
         </template>
-        <button v-if="toolOn('undo')" class="t-btn" title="撤销" @click="undo">
+        <button class="t-btn" title="撤销" @click="undo">
           <svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h10a6 6 0 0 1 0 12h-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" transform="scale(1,-1) translate(0,-24)"/></svg>
         </button>
-        <span v-if="toolOn('ocr') || toolOn('save') || toolOn('pin') || toolOn('close')" class="t-sep"></span>
-        <button v-if="toolOn('ocr')" class="t-btn wide" title="提取选区内文字（OCR）" @click="doOcr">
+        <span class="t-sep"></span>
+        <button class="t-btn wide" title="提取选区内文字（OCR）" @click="doOcr">
           <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
           提取文字
         </button>
-        <button v-if="toolOn('save')" class="t-btn wide" title="保存为 PNG" @click="doSave">
+        <button class="t-btn wide" title="保存为 PNG" @click="doSave">
           <svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
           保存
         </button>
-        <button v-if="toolOn('pin')" class="t-btn wide" title="钉在桌面上" @click="doPin">
+        <button class="t-btn wide" title="钉在桌面上" @click="doPin">
           <svg viewBox="0 0 24 24"><path d="M14 3l7 7-4 1-4 4-1 6-2-2-5-5-2-1 6-1 4-4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
           钉住
         </button>
-        <button v-if="toolOn('close')" class="t-btn close" title="关闭（Esc）" @click="cancel">
+        <button class="t-btn close" title="关闭（Esc）" @click="cancel">
           <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         </button>
       </div>
@@ -833,6 +835,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 .bg-bright { position: absolute; pointer-events: none; }
 .mosaic-layer {
   position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
   z-index: 2;
 }

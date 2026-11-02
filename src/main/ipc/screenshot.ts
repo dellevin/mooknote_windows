@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import { BrowserWindow, desktopCapturer, dialog, ipcMain, screen } from 'electron'
 import { recognizeCloud } from '../services/cloudOcrService'
 import { hidePanel, setBallBusy } from '../floatBall'
+import { hideMainWindowIfPref, waitHidden } from '../mainHide'
 import type { OcrLine } from '../../shared/types'
 
 // 钉在桌面上的截图窗（独立于截屏会话，会话结束不销毁）
@@ -18,6 +19,7 @@ interface ShotSession {
   backgrounds: Map<string, string>
   scales: Map<string, number>
   pixels: Map<string, { width: number; height: number }>
+  restoreMain: (() => void) | null
   ended: boolean
 }
 
@@ -29,6 +31,7 @@ function finishSession(canceled: boolean, lines: OcrLine[] | null = null): void 
   s.ended = true
   session = null
   setBallBusy(false)
+  s.restoreMain?.()
   s.resolve({ canceled, lines })
   // 延迟销毁，先让 invoke 应答回到选区窗口
   setTimeout(() => {
@@ -72,6 +75,10 @@ export function registerScreenshotIpc(): void {
   ipcMain.handle('shot:capture', async () => {
     if (session) return { canceled: true, lines: null }
 
+    const restoreMain = hideMainWindowIfPref('hideMainOnShot')
+    hidePanel()
+    setBallBusy(true)
+    if (restoreMain) await waitHidden()
     const displays = screen.getAllDisplays()
     // 每个显示器按自身物理分辨率单独取帧，避免多屏比例不同导致裁剪错位
     const shots = new Map<
@@ -103,12 +110,11 @@ export function registerScreenshotIpc(): void {
         backgrounds: new Map(),
         scales: new Map(),
         pixels: new Map(),
+        restoreMain,
         ended: false
       }
       session = s
-      // 隐藏面板、球上转圈；截屏期间悬浮球不挡画面
-      hidePanel()
-      setBallBusy(true)
+      // 面板隐藏、球上转圈已在取帧前完成
 
       for (const d of displays) {
         const id = String(d.id)
@@ -172,6 +178,7 @@ export function registerScreenshotIpc(): void {
 
       if (!s.windows.length) {
         session = null
+        restoreMain?.()
         resolve({ canceled: true, lines: null })
       }
     })
@@ -315,5 +322,47 @@ export function registerScreenshotIpc(): void {
   // 钉图窗：关闭（透明无边框窗里 app-region drag 会吞掉按钮点击，改由主进程关闭）
   ipcMain.on('shot:pin-close', (e) => {
     BrowserWindow.fromWebContents(e.sender)?.close()
+  })
+
+  // 钉图窗自定义拖动：窗口不能用 -webkit-app-region:drag（那会吞掉滚轮事件），
+  // 改由渲染端 pointer 事件驱动，主进程按全局光标位移移动窗口。
+  const pinDrag = new WeakMap<BrowserWindow, { x: number; y: number; ox: number; oy: number }>()
+  ipcMain.on('shot:pin-drag-start', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (!win || win.isDestroyed()) return
+    const [ox, oy] = win.getPosition()
+    pinDrag.set(win, { x: screen.getCursorScreenPoint().x, y: screen.getCursorScreenPoint().y, ox, oy })
+  })
+  ipcMain.on('shot:pin-drag-move', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const d = win && pinDrag.get(win)
+    if (!win || win.isDestroyed() || !d) return
+    const c = screen.getCursorScreenPoint()
+    win.setPosition(d.ox + (c.x - d.x), d.oy + (c.y - d.y))
+  })
+
+  // 钉图窗：滚轮缩放。图片铺满窗口，故直接按系数缩放窗口尺寸并以中心为锚点，
+  // 限制在最小尺寸与所在显示器工作区之间。
+  ipcMain.on('shot:pin-zoom', (e, factor: unknown) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (!win || win.isDestroyed()) return
+    const f = Number(factor)
+    if (!Number.isFinite(f) || f <= 0) return
+    const b = win.getBounds()
+    const wa = screen.getDisplayNearestPoint({ x: b.x + b.width / 2, y: b.y + b.height / 2 })
+      .workArea
+    const MIN = 60
+    const maxW = wa.width - 8
+    const maxH = wa.height - 8
+    const nw = Math.min(Math.max(Math.round(b.width * f), MIN), maxW)
+    const nh = Math.min(Math.max(Math.round(b.height * f), MIN), maxH)
+    if (nw === b.width && nh === b.height) return
+    // 以原中心为锚点，避免缩放时窗口跳位
+    win.setBounds({
+      x: Math.round(b.x + (b.width - nw) / 2),
+      y: Math.round(b.y + (b.height - nh) / 2),
+      width: nw,
+      height: nh
+    })
   })
 }

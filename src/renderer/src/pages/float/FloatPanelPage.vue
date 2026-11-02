@@ -1,20 +1,23 @@
 <script setup lang="ts">
 // 悬浮球功能面板：同一个小窗在「菜单 / OCR 结果」两种模式间由主进程切换尺寸与内容。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import type { OcrLine } from '@shared/types'
+import type { OcrLine, PickedColor } from '@shared/types'
 
-const mode = ref<'menu' | 'result'>('menu')
+const mode = ref<'menu' | 'result' | 'color'>('menu')
 const lines = ref<OcrLine[]>([])
 const capturing = ref(false)
 const shooting = ref(false)
+const picking = ref(false)
 const errorMsg = ref('')
 const cloudReady = ref(false)
 const shotEnabled = ref(true)
 const ocrMenuEnabled = ref(true)
+const colorEnabled = ref(true)
+const picked = ref<PickedColor | null>(null)
 // 主进程每次展示前都会先推送 mode；首个 mode 到达前保持透明，避免先画上一种模式再切换（闪烁）
 const shown = ref(false)
 
-const cloudLabel = computed(() => 'OCR识别')
+const cloudLabel = computed(() => 'OCR')
 
 const resultText = computed(() => lines.value.map((l) => l.text).join('\n'))
 
@@ -65,22 +68,89 @@ async function startShot(): Promise<void> {
   }
 }
 
+async function startPick(): Promise<void> {
+  if (picking.value) return
+  picking.value = true
+  try {
+    // 主进程隐藏面板、球转圈；点击像素后带颜色返回，Esc/右键则取消
+    const res = await window.mook.color.capture()
+    if (res.canceled || !res.color) {
+      window.mook.float.hide()
+      return
+    }
+    picked.value = res.color
+    await window.mook.float.setMode('color')
+  } finally {
+    picking.value = false
+  }
+}
+function repick(): void {
+  void startPick()
+}
+
 function recapture(): void {
   void (lastSource.value === 'shot' ? startShot() : startOcr())
 }
 
+const toast = ref('')
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+function showToast(msg: string): void {
+  toast.value = msg
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => (toast.value = ''), 1600)
+}
+async function copyText(text: string): Promise<void> {
+  const { ok } = await window.mook.ocr.copyText(text)
+  showToast(ok ? '复制成功' : '复制失败')
+}
 async function copyAll(): Promise<void> {
-  await window.mook.ocr.copyText(resultText.value)
+  await copyText(resultText.value)
+}
+async function copyColor(text: string): Promise<void> {
+  await copyText(text)
 }
 function closePanel(): void {
   window.mook.float.hide()
 }
+
+const colorRgb = computed(() => {
+  const c = picked.value
+  return c ? `RGB(${c.r}, ${c.g}, ${c.b})` : ''
+})
+const colorHsl = computed(() => {
+  const c = picked.value
+  if (!c) return ''
+  const r = c.r / 255
+  const g = c.g / 255
+  const b = c.b / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  let h = 0
+  let s = 0
+  if (max !== min) {
+    const d = max - min
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+    if (max === r) h = (g - b) / d + (g < b ? 6 : 0)
+    else if (max === g) h = (b - r) / d + 2
+    else h = (r - g) / d + 4
+    h *= 60
+  }
+  return `HSL(${Math.round(h)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%)`
+})
 
 let offMode: (() => void) | null = null
 let offHidden: (() => void) | null = null
 onMounted(async () => {
   offMode = window.mook.float.onMode(async (m) => {
     mode.value = m
+    // 面板窗常驻复用：每次打开菜单都重读功能开关，否则设置里关闭后仍显示旧状态
+    if (m === 'menu') {
+      shotEnabled.value = (await window.mook.prefs.get<boolean>('shotEnabled', true)) !== false
+      ocrMenuEnabled.value =
+        (await window.mook.prefs.get<boolean>('ocrMenuEnabled', true)) !== false
+      colorEnabled.value = (await window.mook.prefs.get<boolean>('colorEnabled', true)) !== false
+    }
     shown.value = true
     // 等正确模式画面渲染上屏后再通知主进程显示窗口，避免先闪旧内容一帧
     await nextTick()
@@ -98,6 +168,7 @@ onMounted(async () => {
   shotEnabled.value = (await window.mook.prefs.get<boolean>('shotEnabled', true)) !== false
   ocrMenuEnabled.value =
     (await window.mook.prefs.get<boolean>('ocrMenuEnabled', true)) !== false
+  colorEnabled.value = (await window.mook.prefs.get<boolean>('colorEnabled', true)) !== false
 })
 onBeforeUnmount(() => {
   offMode?.()
@@ -107,6 +178,9 @@ onBeforeUnmount(() => {
 
 <template>
   <div v-show="shown" class="panel-root" :class="mode">
+    <Transition name="toast">
+      <div v-if="toast" class="toast">{{ toast }}</div>
+    </Transition>
     <!-- 功能菜单 -->
     <div v-if="mode === 'menu'" class="menu-card">
       <button v-if="ocrMenuEnabled" class="menu-item" :disabled="capturing || shooting || !cloudReady" @click="startOcr">
@@ -124,7 +198,44 @@ onBeforeUnmount(() => {
         </svg>
         <span>{{ shooting ? '正在截屏…' : '截屏' }}</span>
       </button>
+      <button v-if="colorEnabled" class="menu-item" :disabled="capturing || shooting || picking" @click="startPick">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3a7 7 0 0 0-7 7c0 4 7 11 7 11s7-7 7-11a7 7 0 0 0-7-7z" />
+          <circle cx="12" cy="10" r="2.6" />
+        </svg>
+        <span>{{ picking ? '正在取色…' : '取色' }}</span>
+      </button>
       <div v-if="ocrMenuEnabled && !cloudReady" class="menu-hint">云端 OCR 未配置，截屏的「提取文字」不可用</div>
+    </div>
+
+    <!-- 取色结果 -->
+    <div v-else-if="mode === 'color' && picked" class="result-card color-card">
+      <div class="rc-head">
+        <span class="rc-title">取色结果</span>
+        <button class="rc-close" title="关闭" @click="closePanel">✕</button>
+      </div>
+      <div class="color-body">
+        <div class="swatch" :style="{ background: picked.hex }"></div>
+        <div class="color-rows">
+          <button class="color-row" title="点击复制" @click="copyColor(picked.hex)">
+            <span class="cr-label">HEX</span>
+            <span class="cr-val">{{ picked.hex }}</span>
+          </button>
+          <button class="color-row" title="点击复制" @click="copyColor(colorRgb)">
+            <span class="cr-label">RGB</span>
+            <span class="cr-val">{{ colorRgb }}</span>
+          </button>
+          <button class="color-row" title="点击复制" @click="copyColor(colorHsl)">
+            <span class="cr-label">HSL</span>
+            <span class="cr-val">{{ colorHsl }}</span>
+          </button>
+        </div>
+      </div>
+      <div class="rc-foot">
+        <button class="btn" @click="closePanel">关闭</button>
+        <button class="btn" @click="repick">重新取色</button>
+      </div>
     </div>
 
     <!-- OCR 结果 -->
@@ -155,6 +266,31 @@ onBeforeUnmount(() => {
   align-items: flex-end;
   justify-content: flex-end;
   overflow: hidden;
+  position: relative;
+}
+.toast {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  padding: 7px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #fff;
+  background: rgba(20, 22, 26, 0.88);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-6px);
 }
 /* 菜单模式：卡片靠右下角（球的上方） */
 .menu-card {
@@ -271,6 +407,55 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 12px 18px;
   border-top: 1px solid rgba(17, 17, 17, 0.08);
+}
+/* 取色结果 */
+.color-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+}
+.swatch {
+  flex: 0 0 120px;
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(17, 17, 17, 0.14);
+}
+.color-rows {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+}
+.color-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  border-radius: 8px;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.color-row:hover {
+  background: rgba(17, 17, 17, 0.05);
+}
+.cr-label {
+  flex: 0 0 38px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim, #9aa0ac);
+}
+.cr-val {
+  font-size: 14px;
+  color: var(--text-strong, #1f2329);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
 }
 .btn {
   padding: 7px 16px;

@@ -62,7 +62,8 @@ import type {
   IncSyncResult,
   IncSyncProgress,
   OcrLine,
-  EngineScanResult
+  EngineScanResult,
+  PickedColor
 } from '@shared/types'
 
 interface MediaQuery {
@@ -421,12 +422,13 @@ interface MookApi {
     dragMove: () => void
     dragEnd: () => void
     toggleMenu: () => Promise<void>
-    setMode: (mode: 'menu' | 'result') => Promise<void>
+    toggleMain: () => Promise<{ ok: boolean }>
+    setMode: (mode: 'menu' | 'result' | 'color') => Promise<void>
     hide: () => void
     getEnabled: () => Promise<boolean>
     setEnabled: (enabled: boolean) => Promise<{ ok: boolean }>
     onBusy: (cb: (busy: boolean) => void) => () => void
-    onMode: (cb: (mode: 'menu' | 'result') => void) => () => void
+    onMode: (cb: (mode: 'menu' | 'result' | 'color') => void) => () => void
     onHidden: (cb: () => void) => () => void
     presented: () => void
   }
@@ -472,6 +474,17 @@ interface MookApi {
     }) => Promise<{ ok: boolean }>
     pinInit: (id: string) => Promise<string | null>
     pinClose: () => void
+    pinZoom: (factor: number) => void
+    pinDragStart: () => void
+    pinDragMove: () => void
+  }
+  color: {
+    capture: () => Promise<{ canceled: boolean; color: PickedColor | null }>
+    overlayInit: (
+      displayId: string
+    ) => Promise<{ dataUrl: string; pixels: { width: number; height: number } | null } | null>
+    overlayPick: (color: PickedColor) => Promise<{ ok: boolean }>
+    overlayCancel: () => Promise<{ ok: boolean }>
   }
   util: {
     uuid: () => string

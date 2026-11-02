@@ -56,14 +56,14 @@ const activeMenu = ref('float')
 // 悬浮球页内部的左侧子菜单，默认进入 OCR
 const FLOAT_SUBS = [
   { id: 'general', label: '通用' },
-  { id: 'ocr', label: 'OCR' },
-  { id: 'shot', label: '截屏' }
+  { id: 'ocr', label: 'OCR' }
 ] as const
 const floatSub = ref<(typeof FLOAT_SUBS)[number]['id']>('ocr')
 const ballEnabled = ref(true)
 // 悬浮球菜单里各功能模块的显隐（prefs: ocrMenuEnabled / shotEnabled）
 const ocrMenuEnabled = ref(true)
 const shotEnabled = ref(true)
+const colorEnabled = ref(true)
 
 async function onBallEnabledToggle(v: boolean): Promise<void> {
   await window.mook.float.setEnabled(v)
@@ -77,36 +77,9 @@ async function onShotEnabledToggle(v: boolean): Promise<void> {
   shotEnabled.value = v
   await window.mook.prefs.set('shotEnabled', v)
 }
-
-// ── 截屏工具条小工具显隐（prefs: shotTools） ──
-const SHOT_TOOL_OPTIONS = [
-  { id: 'rect', label: '矩形' },
-  { id: 'ellipse', label: '椭圆' },
-  { id: 'arrow', label: '箭头' },
-  { id: 'brush', label: '画笔' },
-  { id: 'mosaic', label: '马赛克' },
-  { id: 'undo', label: '撤销' },
-  { id: 'ocr', label: '提取文字' },
-  { id: 'save', label: '保存图片' },
-  { id: 'pin', label: '钉住' },
-  { id: 'close', label: '关闭' }
-] as const
-const SHOT_TOOL_ALL = SHOT_TOOL_OPTIONS.map((t) => t.id)
-const shotTools = ref<string[]>([...SHOT_TOOL_ALL])
-
-function isShotToolOn(id: string): boolean {
-  return shotTools.value.includes(id)
-}
-async function toggleShotTool(id: string, on: boolean): Promise<void> {
-  if (on) {
-    if (!shotTools.value.includes(id)) shotTools.value = [...shotTools.value, id]
-  } else {
-    shotTools.value = shotTools.value.filter((t) => t !== id)
-  }
-  await window.mook.prefs.set('shotTools', shotTools.value)
-}
-function onShotToolCheck(id: string, e: Event): void {
-  void toggleShotTool(id, (e.target as HTMLInputElement).checked)
+async function onColorEnabledToggle(v: boolean): Promise<void> {
+  colorEnabled.value = v
+  await window.mook.prefs.set('colorEnabled', v)
 }
 
 // 在线搜索页内部的左侧子菜单
@@ -1047,8 +1020,7 @@ onMounted(async () => {
   ocrMenuEnabled.value =
     (await window.mook.prefs.get<boolean>('ocrMenuEnabled', true)) !== false
   shotEnabled.value = (await window.mook.prefs.get<boolean>('shotEnabled', true)) !== false
-  const savedTools = await window.mook.prefs.get<string[]>('shotTools', [...SHOT_TOOL_ALL])
-  shotTools.value = Array.isArray(savedTools) && savedTools.length ? savedTools : [...SHOT_TOOL_ALL]
+  colorEnabled.value = (await window.mook.prefs.get<boolean>('colorEnabled', true)) !== false
   // 恢复上次选中的 tab，并把对应面板滚动到顶部（默认悬浮球页）
   const saved = await window.mook.prefs.get<string>('settingsActiveTab', 'float')
   if (MENU.some((m) => m.id === saved)) {
@@ -1518,19 +1490,9 @@ onMounted(async () => {
                   <label class="lbl">显示「截屏」</label>
                   <NSwitch :value="shotEnabled" @update:value="onShotEnabledToggle" />
                 </div>
-              </template>
-              <template v-else-if="floatSub === 'shot'">
-                <h3 class="float-main-title">截屏工具条</h3>
-                <p class="hint">选择截屏标注工具条上显示的小工具与操作按钮；关闭只是隐藏，不影响框选与移动选区。</p>
-                <div class="shot-tool-grid">
-                  <label v-for="opt in SHOT_TOOL_OPTIONS" :key="opt.id" class="shot-tool-item">
-                    <input
-                      type="checkbox"
-                      :checked="isShotToolOn(opt.id)"
-                      @change="onShotToolCheck(opt.id, $event)"
-                    />
-                    <span>{{ opt.label }}</span>
-                  </label>
+                <div class="form-row">
+                  <label class="lbl">显示「取色」</label>
+                  <NSwitch :value="colorEnabled" @update:value="onColorEnabledToggle" />
                 </div>
               </template>
               <template v-else>
@@ -1734,6 +1696,20 @@ onMounted(async () => {
                       <span class="local-dir-label">引擎目录：</span>
                       <span class="path">{{ engineScan?.roots[0] ?? '' }}</span>
                     </div>
+                    <div class="local-guide">
+                      <div class="local-guide-title">引擎不随软件安装，需自行下载后离线使用：</div>
+                      <div class="local-guide-links">
+                        <a href="#" @click.prevent="openExternal('https://github.com/hiroi-sora/RapidOCR-json/releases')">
+                          下载 RapidOCR-json
+                        </a>
+                        <a href="#" @click.prevent="openExternal('https://github.com/hiroi-sora/PaddleOCR-json/releases')">
+                          下载 PaddleOCR-json
+                        </a>
+                      </div>
+                      <div class="local-guide-step">
+                        解压后把整个引擎文件夹（含 exe 与 models）放进上面的引擎目录，再点「刷新检测」。
+                      </div>
+                    </div>
 
                     <NSpace :size="10" class="save-row">
                       <NButton size="small" type="primary" :disabled="!localReady" @click="saveCloudCredentials">
@@ -1935,31 +1911,6 @@ onMounted(async () => {
   font-weight: 600;
   color: var(--text-strong, #1f2329);
 }
-/* 截屏工具按钮显隐：复选框网格 */
-.shot-tool-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 8px;
-}
-.shot-tool-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid rgba(17, 17, 17, 0.12);
-  border-radius: 8px;
-  font-size: 13px;
-  color: var(--text-strong, #1f2329);
-  cursor: pointer;
-}
-.shot-tool-item:hover {
-  background: rgba(17, 17, 17, 0.04);
-}
-.shot-tool-item input {
-  accent-color: var(--accent, #2563eb);
-  cursor: pointer;
-}
 /* OCR 识别模块：每个提供方一个独立小卡，后续并列追加即可 */
 .ocr-provider-bar {
   display: flex;
@@ -2074,6 +2025,32 @@ onMounted(async () => {
 .local-dir-label {
   color: var(--text-dim, #9aa0ac);
   flex: 0 0 auto;
+}
+.local-guide {
+  margin: 4px 0 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(17, 17, 17, 0.04);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.local-guide-title {
+  color: var(--text-strong, #1f2329);
+}
+.local-guide-links {
+  display: flex;
+  gap: 16px;
+  margin: 2px 0;
+}
+.local-guide-links a {
+  color: var(--accent, #2563eb);
+  text-decoration: none;
+}
+.local-guide-links a:hover {
+  text-decoration: underline;
+}
+.local-guide-step {
+  color: var(--text-dim, #9aa0ac);
 }
 .ocr-modules {
   display: flex;

@@ -4,6 +4,7 @@ import { BrowserWindow, clipboard, desktopCapturer, ipcMain, screen, shell } fro
 import { getCloudConfigAsync, recognizeCloud, testCloud } from '../services/cloudOcrService'
 import { scanEngines, primaryEngineDir } from '../services/localOcr/engineScanner'
 import { hidePanel, setBallBusy } from '../floatBall'
+import { hideMainWindowIfPref, waitHidden } from '../mainHide'
 import type { OcrLine } from '../../shared/types'
 
 // 截屏选区会话：悬浮球面板发起 ocr:capture 后等待选区结果；
@@ -14,6 +15,7 @@ interface CaptureSession {
   backgrounds: Map<string, string>
   scales: Map<string, number>
   pixels: Map<string, { width: number; height: number }>
+  restoreMain: (() => void) | null
   ended: boolean
 }
 
@@ -25,6 +27,7 @@ function finishSession(lines: OcrLine[] | null): void {
   s.ended = true
   session = null
   setBallBusy(false)
+  s.restoreMain?.()
   s.resolve(lines)
   // 延迟销毁，先让 invoke 应答回到选区窗口
   setTimeout(() => {
@@ -66,6 +69,10 @@ export function registerOcrIpc(): void {
   ipcMain.handle('ocr:capture', async () => {
     if (session) return null
 
+    const restoreMain = hideMainWindowIfPref('hideMainOnOcr')
+    hidePanel()
+    setBallBusy(true)
+    if (restoreMain) await waitHidden()
     const displays = screen.getAllDisplays()
     // 每个显示器按自身物理分辨率单独取帧，避免多屏比例不同导致缩略图被等比缩放、裁剪错位
     const shots = new Map<
@@ -97,12 +104,11 @@ export function registerOcrIpc(): void {
         backgrounds: new Map(),
         scales: new Map(),
         pixels: new Map(),
+        restoreMain,
         ended: false
       }
       session = s
-      // 隐藏面板、球上转圈；选区期间悬浮球不挡画面
-      hidePanel()
-      setBallBusy(true)
+      // 面板隐藏、球上转圈已在取帧前完成
 
       for (const d of displays) {
         const id = String(d.id)
@@ -170,6 +176,7 @@ export function registerOcrIpc(): void {
 
       if (!s.windows.length) {
         session = null
+        restoreMain?.()
         resolve(null)
       }
     })

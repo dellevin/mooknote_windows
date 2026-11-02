@@ -25,3 +25,16 @@ export function imagesRoot(): string {
 export function prefsPath(): string {
   return path.join(dataRoot, 'prefs.json')
 }
+
+// 电子书阅读器：完全独立的数据库与书库目录，不参与 webdav/备份同步
+export function readerDbPath(): string {
+  return path.join(dataRoot, 'reader.db')
+}
+
+export function readerLibraryDir(): string {
+  return path.join(dataRoot, 'reader-library')
+}
+
+export function readerCoversDir(): string {
+  return path.join(dataRoot, 'reader-covers')
+}

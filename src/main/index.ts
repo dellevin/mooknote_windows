@@ -31,7 +31,10 @@ import { registerTagIpc } from './ipc/tag'
 import { registerIncSyncIpc } from './ipc/incSync'
 import { registerOcrIpc } from './ipc/ocr'
 import { registerScreenshotIpc } from './ipc/screenshot'
+import { registerColorPickerIpc } from './ipc/colorPicker'
 import { createBallWindow, registerFloatIpc } from './floatBall'
+import { registerReaderIpc } from './reader/ipcReader'
+import { openReaderDatabase } from './reader/db'
 import { downloadRemoteImage } from './services/onlineSearch'
 
 // 本地图片：mookimg:///<绝对路径>
@@ -236,7 +239,10 @@ app.whenReady().then(() => {
   registerIncSyncIpc()
   registerOcrIpc()
   registerScreenshotIpc()
+  registerColorPickerIpc()
   registerFloatIpc()
+  openReaderDatabase()
+  registerReaderIpc()
 
   // 渲染层关窗询问弹窗的决定回传
   ipcMain.on('win:close-decision', (_e, r: { quit?: unknown; remember?: unknown }) => {

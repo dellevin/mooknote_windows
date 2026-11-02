@@ -56,7 +56,10 @@ import type {
   IncSyncResult,
   IncSyncProgress,
   OcrLine,
-  EngineScanResult
+  EngineScanResult,
+  PickedColor,
+  ReaderBook,
+  ReaderAnnotation
 } from '../shared/types'
 
 interface MediaQuery {
@@ -534,7 +537,9 @@ const api = {
     dragMove: (): void => ipcRenderer.send('float:drag-move'),
     dragEnd: (): void => ipcRenderer.send('float:drag-end'),
     toggleMenu: (): Promise<void> => ipcRenderer.invoke('float:toggle-menu'),
-    setMode: (mode: 'menu' | 'result'): Promise<void> =>
+    toggleMain: (): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('float:toggle-main'),
+    setMode: (mode: 'menu' | 'result' | 'color'): Promise<void> =>
       ipcRenderer.invoke('float:set-mode', mode),
     hide: (): void => ipcRenderer.send('float:hide'),
     getEnabled: (): Promise<boolean> => ipcRenderer.invoke('float:get-enabled'),
@@ -545,8 +550,8 @@ const api = {
       ipcRenderer.on('float:busy', listener)
       return () => ipcRenderer.removeListener('float:busy', listener)
     },
-    onMode: (cb: (mode: 'menu' | 'result') => void): (() => void) => {
-      const listener = (_e: unknown, mode: 'menu' | 'result'): void => cb(mode)
+    onMode: (cb: (mode: 'menu' | 'result' | 'color') => void): (() => void) => {
+      const listener = (_e: unknown, mode: 'menu' | 'result' | 'color'): void => cb(mode)
       ipcRenderer.on('float:mode', listener)
       return () => ipcRenderer.removeListener('float:mode', listener)
     },
@@ -611,7 +616,68 @@ const api = {
     }): Promise<{ ok: boolean }> => ipcRenderer.invoke('shot:overlay-pin', payload),
     pinInit: (id: string): Promise<string | null> =>
       ipcRenderer.invoke('shot:pin-init', id),
-    pinClose: (): void => ipcRenderer.send('shot:pin-close')
+    pinClose: (): void => ipcRenderer.send('shot:pin-close'),
+    pinZoom: (factor: number): void => ipcRenderer.send('shot:pin-zoom', factor),
+    pinDragStart: (): void => ipcRenderer.send('shot:pin-drag-start'),
+    pinDragMove: (): void => ipcRenderer.send('shot:pin-drag-move')
+  },
+  // 屏幕取色：全屏放大镜取单个像素颜色
+  color: {
+    capture: (): Promise<{ canceled: boolean; color: PickedColor | null }> =>
+      ipcRenderer.invoke('color:capture'),
+    overlayInit: (
+      displayId: string
+    ): Promise<{ dataUrl: string; pixels: { width: number; height: number } | null } | null> =>
+      ipcRenderer.invoke('color:overlay-init', displayId),
+    overlayPick: (color: PickedColor): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('color:overlay-pick', color),
+    overlayCancel: (): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('color:overlay-cancel')
+  },
+  // 电子书阅读器（独立窗口 + 独立 reader.db）
+  reader: {
+    open: (): Promise<boolean> => ipcRenderer.invoke('reader:open'),
+    focus: (): Promise<boolean> => ipcRenderer.invoke('reader:focus'),
+    list: (): Promise<ReaderBook[]> => ipcRenderer.invoke('reader:list'),
+    import: (): Promise<{ imported: number; failed: string[] }> =>
+      ipcRenderer.invoke('reader:import'),
+    delete: (id: string): Promise<boolean> => ipcRenderer.invoke('reader:delete', id),
+    openBook: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke('reader:open-book', id),
+    backShelf: (): Promise<boolean> => ipcRenderer.invoke('reader:back-shelf'),
+    pickCover: (id: string): Promise<ReaderBook | null> =>
+      ipcRenderer.invoke('reader:pick-cover', id),
+    // 阅读过程
+    saveProgress: (payload: {
+      bookId: string
+      cfi: string
+      percentage: number
+      chapterTitle: string | null
+    }): Promise<boolean> => ipcRenderer.invoke('reader:save-progress', payload),
+    annotations: (bookId: string): Promise<ReaderAnnotation[]> =>
+      ipcRenderer.invoke('reader:annotations', bookId),
+    toggleBookmark: (
+      bookId: string,
+      payload: {
+        remove: boolean
+        detail: { cfi: string; content: string; percentage: number }
+        chapterTitle: string | null
+      }
+    ): Promise<{ id: string; action: 'added' | 'removed' }> =>
+      ipcRenderer.invoke('reader:bookmark-toggle', { bookId, ...payload }),
+    removeBookmark: (bookId: string, cfi: string): Promise<boolean> =>
+      ipcRenderer.invoke('reader:bookmark-remove', bookId, cfi),
+    onHostEvent: (cb: (name: string, data: unknown) => void): (() => void) => {
+      const listener = (_e: unknown, name: unknown, data: unknown): void =>
+        cb(String(name), data)
+      ipcRenderer.on('reader:host-event', listener)
+      return () => ipcRenderer.removeListener('reader:host-event', listener)
+    }
+  },
+  // foliate-js 宿主桥：book.js 通过 window.flutter_inappwebview.callHandler 调到这里
+  readerHost: {
+    event: (name: string, data: unknown): void =>
+      ipcRenderer.send('reader:event', name, data)
   },
   util: {
     uuid: (): string => randomUUID()

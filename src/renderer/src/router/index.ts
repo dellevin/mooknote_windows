@@ -74,6 +74,11 @@ const router = createRouter({
       component: () => import('@/pages/GalleryPage.vue')
     },
     {
+      path: '/tools',
+      name: 'tools',
+      component: () => import('@/pages/ToolsPage.vue')
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('@/pages/SettingsPage.vue')
@@ -105,6 +110,13 @@ const router = createRouter({
       meta: { bare: true }
     },
     {
+      // 屏幕取色覆盖窗口：不渲染应用外壳
+      path: '/color-picker',
+      name: 'color-picker',
+      component: () => import('@/pages/ColorPickerPage.vue'),
+      meta: { bare: true }
+    },
+    {
       // 桌面悬浮球独立窗口
       path: '/float-ball',
       name: 'float-ball',
@@ -116,6 +128,13 @@ const router = createRouter({
       path: '/float-panel',
       name: 'float-panel',
       component: () => import('@/pages/float/FloatPanelPage.vue'),
+      meta: { bare: true }
+    },
+    {
+      // 电子书阅读独立窗口：书架 + foliate-js 阅读 iframe
+      path: '/reader',
+      name: 'reader',
+      component: () => import('@/pages/reader/ReaderWindowPage.vue'),
       meta: { bare: true }
     }
   ]

@@ -11,14 +11,15 @@ app.on('before-quit', () => {
 // 桌面悬浮球：独立于主窗口的无边框透明置顶小窗，可在桌面任意位置拖动；
 // 点击在球上方弹出功能面板（菜单 / OCR 结果），面板是另一个独立小窗。
 const BALL_SIZE = 56
-const PANEL_MENU = { w: 176, h: 108 }
+const PANEL_MENU = { w: 176, h: 176 }
 const PANEL_RESULT = { w: 620, h: 540 }
+const PANEL_COLOR = { w: 360, h: 470 }
 const GAP = 10
 const MENU_GAP = 4
 
 let ballWin: BrowserWindow | null = null
 let panelWin: BrowserWindow | null = null
-let panelMode: 'menu' | 'result' | null = null
+let panelMode: 'menu' | 'result' | 'color' | null = null
 
 // 拖动起点：全局光标位置 + 球窗起点
 let dragCursor = { x: 0, y: 0 }
@@ -160,20 +161,23 @@ export function setFloatBallEnabled(enabled: boolean): void {
   }
 }
 
-function panelBounds(mode: 'menu' | 'result'): {
+function panelBounds(mode: 'menu' | 'result' | 'color'): {
   x: number
   y: number
   width: number
   height: number
 } {
-  const size = mode === 'menu' ? PANEL_MENU : PANEL_RESULT
+  const size = mode === 'menu' ? PANEL_MENU : mode === 'color' ? PANEL_COLOR : PANEL_RESULT
   const ball = ballWin?.getBounds() ?? defaultBallPos()
   const disp = screen.getDisplayNearestPoint({ x: ball.x + BALL_SIZE / 2, y: ball.y })
   const wa = disp.workArea
   // 菜单默认在球正下方、水平居中于球（方便鼠标直接下滑进入）；下方放不下才放到上方。
-  // 结果面板较大，仍优先上方、右缘与球对齐
+  // 结果/取色面板优先上方、右缘与球对齐
   const gap = mode === 'menu' ? MENU_GAP : GAP
-  let x = mode === 'menu' ? ball.x + BALL_SIZE / 2 - size.w / 2 : ball.x + BALL_SIZE - size.w
+  let x =
+    mode === 'menu'
+      ? ball.x + BALL_SIZE / 2 - size.w / 2
+      : ball.x + BALL_SIZE - size.w
   let y =
     mode === 'menu'
       ? ball.y + BALL_SIZE + gap
@@ -225,7 +229,10 @@ function ensurePanel(): BrowserWindow {
   return win
 }
 
-function showPanel(mode: 'menu' | 'result'): void {
+// 每个面板窗等待一次"画面就绪"回调
+const presentQueue = new Map<BrowserWindow, () => void>()
+
+function showPanel(mode: 'menu' | 'result' | 'color'): void {
   clearPendingHide()
   panelMode = mode
   const win = ensurePanel()
@@ -243,16 +250,15 @@ function showPanel(mode: 'menu' | 'result'): void {
     clearTimeout(fallback)
     present()
   })
-  const push = (): void => win.webContents.send('float:mode', mode)
+  const push = (): void => {
+    if (panelMode === mode && !win.isDestroyed()) win.webContents.send('float:mode', mode)
+  }
   if (win.webContents.isLoading()) {
     win.webContents.once('did-finish-load', push)
   } else {
     push()
   }
 }
-
-// 每个面板窗等待一次"画面就绪"回调
-const presentQueue = new Map<BrowserWindow, () => void>()
 
 export function hidePanel(): void {
   clearPendingHide()
@@ -300,9 +306,29 @@ export function registerFloatIpc(): void {
     else showPanel('menu')
   })
   ipcMain.handle('float:set-mode', (_e, mode: unknown) => {
-    if (mode === 'menu' || mode === 'result') showPanel(mode)
+    if (mode === 'menu' || mode === 'result' || mode === 'color') showPanel(mode)
   })
   ipcMain.on('float:hide', () => hidePanel())
+  // 双击悬浮球：显示/隐藏主界面。主窗口 = 除球、面板外面积最大的窗口（双击时不会有选区覆盖窗）
+  ipcMain.handle('float:toggle-main', () => {
+    const win = BrowserWindow.getAllWindows()
+      .filter((w) => !w.isDestroyed() && w !== ballWin && w !== panelWin)
+      .sort((a, z) => {
+        const ba = a.getBounds()
+        const bz = z.getBounds()
+        return bz.width * bz.height - ba.width * ba.height
+      })[0]
+    if (!win) return { ok: false }
+    hidePanel()
+    if (win.isVisible() && !win.isMinimized()) {
+      win.hide()
+    } else {
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+    }
+    return { ok: true }
+  })
   ipcMain.handle('float:get-enabled', () => isBallEnabled())
   ipcMain.handle('float:set-enabled', (_e, enabled: unknown) => {
     setFloatBallEnabled(enabled === true)
