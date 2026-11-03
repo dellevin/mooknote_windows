@@ -29,6 +29,9 @@ import CoverCard from '@/components/CoverCard.vue'
 import MovieDetailModal from '@/components/MovieDetailModal.vue'
 import BookDetailModal from '@/components/book/BookDetailModal.vue'
 import GameDetailModal from '@/components/game/GameDetailModal.vue'
+import MovieFormModal from '@/components/MovieFormModal.vue'
+import BookFormModal from '@/components/book/BookFormModal.vue'
+import GameFormModal from '@/components/game/GameFormModal.vue'
 
 const TYPES: TagType[] = ['movie_genre', 'book_genre', 'game_genre', 'note_tag']
 const message = useMessage()
@@ -399,6 +402,26 @@ function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
   detailId.value = id
   detailShow.value = true
 }
+
+// 编辑表单弹窗（详情弹窗点「编辑」后进入，与各媒体页一致）
+const formShow = ref(false)
+const formEditId = ref<string | null>(null)
+const movieFormRef = ref<InstanceType<typeof MovieFormModal> | null>(null)
+const bookFormRef = ref<InstanceType<typeof BookFormModal> | null>(null)
+const gameFormRef = ref<InstanceType<typeof GameFormModal> | null>(null)
+function openEdit(id: string): void {
+  detailShow.value = false
+  formEditId.value = id
+  formShow.value = true
+  const refMap: Record<
+    'movie' | 'book' | 'game',
+    typeof movieFormRef | typeof bookFormRef | typeof gameFormRef
+  > = { movie: movieFormRef, book: bookFormRef, game: gameFormRef }
+  void refMap[detailKind.value].value?.hydrate()
+}
+async function onSaved(): Promise<void> {
+  if (viewTarget.value) await openView(viewTarget.value)
+}
 </script>
 
 <template>
@@ -639,16 +662,44 @@ function openDetail(kind: 'movie' | 'book' | 'game', id: string): void {
         v-if="detailKind === 'movie'"
         v-model:show="detailShow"
         :id="detailId"
+        @edit="openEdit"
+        @changed="onSaved"
       />
       <BookDetailModal
         v-else-if="detailKind === 'book'"
         v-model:show="detailShow"
         :id="detailId"
+        @edit="openEdit"
+        @changed="onSaved"
       />
       <GameDetailModal
         v-else-if="detailKind === 'game'"
         v-model:show="detailShow"
         :id="detailId"
+        @edit="openEdit"
+        @changed="onSaved"
+      />
+
+      <MovieFormModal
+        v-if="detailKind === 'movie'"
+        ref="movieFormRef"
+        v-model:show="formShow"
+        :edit-id="formEditId"
+        @saved="onSaved"
+      />
+      <BookFormModal
+        v-else-if="detailKind === 'book'"
+        ref="bookFormRef"
+        v-model:show="formShow"
+        :edit-id="formEditId"
+        @saved="onSaved"
+      />
+      <GameFormModal
+        v-else-if="detailKind === 'game'"
+        ref="gameFormRef"
+        v-model:show="formShow"
+        :edit-id="formEditId"
+        @saved="onSaved"
       />
   </div>
 </template>

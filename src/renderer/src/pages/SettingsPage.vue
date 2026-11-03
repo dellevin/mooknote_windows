@@ -43,7 +43,7 @@ const MENU = [
   { id: 'backup', label: '本地备份' },
   { id: 'webdav', label: 'WebDAV 备份' },
   { id: 'excel', label: '导出 Excel' },
-  { id: 'float', label: '悬浮球' },
+  { id: 'float', label: '其他配置项' },
   { id: 'env', label: '运行环境' }
 ]
 
@@ -55,10 +55,10 @@ const exporting = ref<string | null>(null)
 const activeMenu = ref('float')
 // 悬浮球页内部的左侧子菜单，默认进入 OCR
 const FLOAT_SUBS = [
-  { id: 'general', label: '通用' },
+  { id: 'general', label: '悬浮球' },
   { id: 'ocr', label: 'OCR' }
 ] as const
-const floatSub = ref<(typeof FLOAT_SUBS)[number]['id']>('ocr')
+const floatSub = ref<(typeof FLOAT_SUBS)[number]['id']>('general')
 const ballEnabled = ref(true)
 // 悬浮球菜单里各功能模块的显隐（prefs: ocrMenuEnabled / shotEnabled）
 const ocrMenuEnabled = ref(true)
@@ -81,6 +81,20 @@ async function onColorEnabledToggle(v: boolean): Promise<void> {
   colorEnabled.value = v
   await window.mook.prefs.set('colorEnabled', v)
 }
+// 功能模块以标签形式横向排列、自动换行；支持按名称搜索
+const floatModuleKeyword = ref('')
+const floatModules = computed(() => [
+  { id: 'ocr', label: 'OCR 识别', enabled: ocrMenuEnabled.value, toggle: onOcrMenuToggle },
+  { id: 'shot', label: '截屏', enabled: shotEnabled.value, toggle: onShotEnabledToggle },
+  { id: 'color', label: '取色', enabled: colorEnabled.value, toggle: onColorEnabledToggle }
+])
+const filteredFloatModules = computed(() => {
+  const kw = floatModuleKeyword.value.trim().toLowerCase()
+  if (!kw) return floatModules.value
+  return floatModules.value.filter((m: (typeof floatModules.value)[number]) =>
+    m.label.toLowerCase().includes(kw)
+  )
+})
 
 // 在线搜索页内部的左侧子菜单
 const SEARCH_SUBS = [
@@ -1457,7 +1471,7 @@ onMounted(async () => {
       </div>
 
       <div id="set-float" class="panel">
-        <NCard title="悬浮球" size="small" class="card float-card">
+        <NCard title="其他配置项" size="small" class="card float-card">
           <div class="float-settings">
             <div class="float-side">
               <button
@@ -1473,7 +1487,7 @@ onMounted(async () => {
             </div>
             <div class="float-main">
               <template v-if="floatSub === 'general'">
-                <h3 class="float-main-title">通用</h3>
+                <h3 class="float-main-title">悬浮球</h3>
                 <div class="form-row">
                   <label class="lbl">显示悬浮球</label>
                   <NSwitch :value="ballEnabled" @update:value="onBallEnabledToggle" />
@@ -1481,18 +1495,29 @@ onMounted(async () => {
                 <p class="hint">关闭后悬浮球在桌面隐藏，重新打开即可恢复，拖动后的位置会保留。</p>
 
                 <h3 class="float-main-title" style="margin-top: 18px">功能模块</h3>
-                <p class="hint">控制悬浮球菜单中显示哪些功能入口。</p>
-                <div class="form-row">
-                  <label class="lbl">显示「OCR 识别」</label>
-                  <NSwitch :value="ocrMenuEnabled" @update:value="onOcrMenuToggle" />
-                </div>
-                <div class="form-row">
-                  <label class="lbl">显示「截屏」</label>
-                  <NSwitch :value="shotEnabled" @update:value="onShotEnabledToggle" />
-                </div>
-                <div class="form-row">
-                  <label class="lbl">显示「取色」</label>
-                  <NSwitch :value="colorEnabled" @update:value="onColorEnabledToggle" />
+                <p class="hint">控制悬浮球菜单中显示哪些功能入口，点击标签即可开关。</p>
+                <NInput
+                  v-model:value="floatModuleKeyword"
+                  size="small"
+                  class="float-module-search"
+                  clearable
+                  placeholder="搜索功能模块"
+                />
+                <div class="float-module-tags">
+                  <button
+                    v-for="m in filteredFloatModules"
+                    :key="m.id"
+                    type="button"
+                    class="float-module-chip"
+                    :class="{ on: m.enabled }"
+                    @click="m.toggle(!m.enabled)"
+                  >
+                    <span class="float-module-dot" :class="{ on: m.enabled }"></span>
+                    {{ m.label }}
+                  </button>
+                  <span v-if="!filteredFloatModules.length" class="float-module-empty">
+                    没有匹配的功能模块
+                  </span>
                 </div>
               </template>
               <template v-else>
@@ -1910,6 +1935,54 @@ onMounted(async () => {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-strong, #1f2329);
+}
+/* 悬浮球功能模块：搜索框 + 横向换行标签 */
+.float-module-search {
+  max-width: 260px;
+  margin: 6px 0 10px;
+}
+.float-module-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.float-module-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--fluent-stroke, rgba(17, 17, 17, 0.12));
+  background: var(--surface, #fff);
+  color: var(--text-dim, #9aa0ac);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.float-module-chip:hover {
+  background: rgba(17, 17, 17, 0.05);
+}
+.float-module-chip.on {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent-ink) 40%, var(--surface));
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.float-module-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: #f0a020;
+}
+.float-module-dot.on {
+  background: #18a058;
+}
+.float-module-empty {
+  font-size: 12px;
+  color: var(--text-dim, #9aa0ac);
 }
 /* OCR 识别模块：每个提供方一个独立小卡，后续并列追加即可 */
 .ocr-provider-bar {

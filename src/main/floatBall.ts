@@ -11,7 +11,7 @@ app.on('before-quit', () => {
 // 桌面悬浮球：独立于主窗口的无边框透明置顶小窗，可在桌面任意位置拖动；
 // 点击在球上方弹出功能面板（菜单 / OCR 结果），面板是另一个独立小窗。
 const BALL_SIZE = 56
-const PANEL_MENU = { w: 176, h: 176 }
+const PANEL_MENU = { w: 176, h: 124 }
 const PANEL_RESULT = { w: 620, h: 540 }
 const PANEL_COLOR = { w: 360, h: 470 }
 const GAP = 10
@@ -20,6 +20,8 @@ const MENU_GAP = 4
 let ballWin: BrowserWindow | null = null
 let panelWin: BrowserWindow | null = null
 let panelMode: 'menu' | 'result' | 'color' | null = null
+// 菜单高度由渲染端按实际启用项数上报，避免窗口比内容高、菜单离球太远
+let menuHeight = PANEL_MENU.h
 
 // 拖动起点：全局光标位置 + 球窗起点
 let dragCursor = { x: 0, y: 0 }
@@ -167,7 +169,12 @@ function panelBounds(mode: 'menu' | 'result' | 'color'): {
   width: number
   height: number
 } {
-  const size = mode === 'menu' ? PANEL_MENU : mode === 'color' ? PANEL_COLOR : PANEL_RESULT
+  const size =
+    mode === 'menu'
+      ? { w: PANEL_MENU.w, h: menuHeight }
+      : mode === 'color'
+        ? PANEL_COLOR
+        : PANEL_RESULT
   const ball = ballWin?.getBounds() ?? defaultBallPos()
   const disp = screen.getDisplayNearestPoint({ x: ball.x + BALL_SIZE / 2, y: ball.y })
   const wa = disp.workArea
@@ -229,8 +236,8 @@ function ensurePanel(): BrowserWindow {
   return win
 }
 
-// 每个面板窗等待一次"画面就绪"回调
-const presentQueue = new Map<BrowserWindow, () => void>()
+// 每个面板窗等待一次"画面就绪"回调；菜单模式可附带实际内容高度
+const presentQueue = new Map<BrowserWindow, (menuH?: number) => void>()
 
 function showPanel(mode: 'menu' | 'result' | 'color'): void {
   clearPendingHide()
@@ -238,17 +245,20 @@ function showPanel(mode: 'menu' | 'result' | 'color'): void {
   const win = ensurePanel()
   let shown = false
   // 渲染端收到 mode 并渲染好正确画面后回调，再真正显示，杜绝旧内容先闪一帧
-  const present = (): void => {
+  const present = (menuH?: number): void => {
     if (shown || panelMode !== mode || win.isDestroyed()) return
     shown = true
+    if (mode === 'menu' && typeof menuH === 'number' && menuH > 0) {
+      menuHeight = Math.min(Math.max(Math.ceil(menuH), 40), 260)
+    }
     win.setBounds(panelBounds(mode))
     win.show()
     win.focus()
   }
   const fallback = setTimeout(present, 220)
-  presentQueue.set(win, () => {
+  presentQueue.set(win, (menuH?: number) => {
     clearTimeout(fallback)
-    present()
+    present(menuH)
   })
   const push = (): void => {
     if (panelMode === mode && !win.isDestroyed()) win.webContents.send('float:mode', mode)
@@ -292,18 +302,26 @@ export function registerFloatIpc(): void {
     const [x, y] = ballWin.getPosition()
     savePos(x, y)
   })
-  // 渲染端已渲染好目标模式画面，可以显示面板
-  ipcMain.on('float:panel-presented', (e) => {
+  // 渲染端已渲染好目标模式画面，可以显示面板；菜单模式附带实际内容高度
+  ipcMain.on('float:panel-presented', (e, menuH?: unknown) => {
     const w = BrowserWindow.fromWebContents(e.sender)
     const cb = w && presentQueue.get(w)
     if (cb) {
       presentQueue.delete(w)
-      cb()
+      cb(typeof menuH === 'number' ? menuH : undefined)
     }
   })
   ipcMain.handle('float:toggle-menu', () => {
-    if (panelMode) hidePanel()
-    else showPanel('menu')
+    if (panelMode) {
+      hidePanel()
+      return
+    }
+    // 三个入口都被设置关闭时，菜单没有任何内容，不弹空框
+    const anyEnabled =
+      prefs.get('ocrMenuEnabled', true) !== false ||
+      prefs.get('shotEnabled', true) !== false ||
+      prefs.get('colorEnabled', true) !== false
+    if (anyEnabled) showPanel('menu')
   })
   ipcMain.handle('float:set-mode', (_e, mode: unknown) => {
     if (mode === 'menu' || mode === 'result' || mode === 'color') showPanel(mode)

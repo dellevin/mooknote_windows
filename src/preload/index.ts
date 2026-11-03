@@ -59,7 +59,8 @@ import type {
   EngineScanResult,
   PickedColor,
   ReaderBook,
-  ReaderAnnotation
+  ReaderAnnotation,
+  ReaderCategory
 } from '../shared/types'
 
 interface MediaQuery {
@@ -560,7 +561,8 @@ const api = {
       ipcRenderer.on('float:hidden', listener)
       return () => ipcRenderer.removeListener('float:hidden', listener)
     },
-    presented: (): void => ipcRenderer.send('float:panel-presented')
+    presented: (menuHeight?: number): void =>
+      ipcRenderer.send('float:panel-presented', menuHeight)
   },
   // OCR：悬浮球发起截屏选区识别
   ocr: {
@@ -638,10 +640,23 @@ const api = {
   reader: {
     open: (): Promise<boolean> => ipcRenderer.invoke('reader:open'),
     focus: (): Promise<boolean> => ipcRenderer.invoke('reader:focus'),
+    isOpen: (): Promise<boolean> => ipcRenderer.invoke('reader:is-open'),
+    closeWindow: (): Promise<boolean> =>
+      ipcRenderer.invoke('reader:close-window'),
+    onStateChanged: (cb: (open: boolean) => void): void => {
+      const listener = (_e: unknown, open: boolean): void => cb(open)
+      ipcRenderer.on('reader:state-changed', listener)
+    },
     list: (): Promise<ReaderBook[]> => ipcRenderer.invoke('reader:list'),
     import: (): Promise<{ imported: number; failed: string[] }> =>
       ipcRenderer.invoke('reader:import'),
     delete: (id: string): Promise<boolean> => ipcRenderer.invoke('reader:delete', id),
+    rename: (
+      id: string,
+      title: string,
+      author: string
+    ): Promise<ReaderBook | null> =>
+      ipcRenderer.invoke('reader:rename', id, { title, author }),
     openBook: (id: string): Promise<boolean> =>
       ipcRenderer.invoke('reader:open-book', id),
     backShelf: (): Promise<boolean> => ipcRenderer.invoke('reader:back-shelf'),
@@ -667,6 +682,26 @@ const api = {
       ipcRenderer.invoke('reader:bookmark-toggle', { bookId, ...payload }),
     removeBookmark: (bookId: string, cfi: string): Promise<boolean> =>
       ipcRenderer.invoke('reader:bookmark-remove', bookId, cfi),
+    listCategories: (): Promise<ReaderCategory[]> =>
+      ipcRenderer.invoke('reader:cat-list'),
+    addCategory: (
+      name: string
+    ): Promise<{ ok: boolean; category?: ReaderCategory; error?: string }> =>
+      ipcRenderer.invoke('reader:cat-add', name),
+    renameCategory: (id: string, name: string): Promise<boolean> =>
+      ipcRenderer.invoke('reader:cat-rename', id, name),
+    deleteCategory: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke('reader:cat-delete', id),
+    setCategoryHidden: (id: string, hidden: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('reader:cat-set-hidden', id, hidden),
+    reorderCategories: (orderedIds: string[]): Promise<boolean> =>
+      ipcRenderer.invoke('reader:cat-reorder', orderedIds),
+    exportBackup: (): Promise<{ ok: boolean; path?: string; error?: string }> =>
+      ipcRenderer.invoke('reader:backup-export'),
+    importBackup: (): Promise<{ ok: boolean; books?: number; error?: string }> =>
+      ipcRenderer.invoke('reader:backup-import'),
+    setBookCategories: (bookId: string, categoryIds: string[]): Promise<boolean> =>
+      ipcRenderer.invoke('reader:cat-set-book', bookId, categoryIds),
     onHostEvent: (cb: (name: string, data: unknown) => void): (() => void) => {
       const listener = (_e: unknown, name: unknown, data: unknown): void =>
         cb(String(name), data)

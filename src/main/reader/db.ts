@@ -35,7 +35,21 @@ const SCHEMA = [
      chapter TEXT,
      created_at INTEGER NOT NULL
    )`,
-  `CREATE INDEX IF NOT EXISTS idx_reader_annotations_book ON reader_annotations(book_id)`
+  `CREATE INDEX IF NOT EXISTS idx_reader_annotations_book ON reader_annotations(book_id)`,
+  `CREATE TABLE IF NOT EXISTS reader_categories (
+     id TEXT PRIMARY KEY,
+     name TEXT NOT NULL UNIQUE,
+     sort_order INTEGER NOT NULL DEFAULT 0,
+     hidden INTEGER NOT NULL DEFAULT 0,
+     created_at INTEGER NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS reader_book_categories (
+     book_id TEXT NOT NULL REFERENCES reader_books(id) ON DELETE CASCADE,
+     category_id TEXT NOT NULL REFERENCES reader_categories(id) ON DELETE CASCADE,
+     PRIMARY KEY (book_id, category_id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_reader_book_cat_cat
+     ON reader_book_categories(category_id)`
 ]
 
 export function openReaderDatabase(): Database {
@@ -45,12 +59,29 @@ export function openReaderDatabase(): Database {
   db.pragma('foreign_keys = ON')
   const tx = db.transaction(() => {
     for (const stmt of SCHEMA) db!.exec(stmt)
+    migrate(db!)
   })
   tx()
   return db
 }
 
+// 旧库增量加列：CREATE TABLE IF NOT EXISTS 不会改已存在的表结构
+function migrate(database: Database): void {
+  const cols = database.prepare('PRAGMA table_info(reader_categories)').all() as Array<{ name: string }>
+  if (!cols.some((c) => c.name === 'hidden')) {
+    database.exec('ALTER TABLE reader_categories ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0')
+  }
+}
+
 export function getReaderDb(): Database {
   if (!db) throw new Error('Reader database not opened')
   return db
+}
+
+// 恢复备份前关闭连接、释放文件锁；下次访问会重新打开
+export function closeReaderDatabase(): void {
+  if (db) {
+    db.close()
+    db = null
+  }
 }

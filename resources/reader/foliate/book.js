@@ -921,6 +921,26 @@ const getCSS = ({ fontSize,
         // width: initial !important;
     }
 
+    /* 封面页：整页只有一张图（可能外包 1~2 层 div）时，
+       电子书自带的 width/height:100% 会把竖向封面拉满变形。
+       强制保持比例、自适应居中，绝不拉伸；不影响正文内联插图。 */
+    body > img:only-child,
+    body > svg:only-child,
+    body > div:only-child > img:only-child,
+    body > div:only-child > svg:only-child,
+    body > div:only-of-type > img:only-child,
+    body > div:only-of-type > svg:only-child,
+    body > div:only-child > div:only-child > img:only-child,
+    body > div:only-child > div:only-child > svg:only-child {
+        max-width: 100% !important;
+        max-height: 100vh !important;
+        width: auto !important;
+        height: auto !important;
+        object-fit: contain !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
+
     a:link {
         color:rgb(167, 96, 52) !important;
     }

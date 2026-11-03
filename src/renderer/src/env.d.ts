@@ -430,7 +430,7 @@ interface MookApi {
     onBusy: (cb: (busy: boolean) => void) => () => void
     onMode: (cb: (mode: 'menu' | 'result' | 'color') => void) => () => void
     onHidden: (cb: () => void) => () => void
-    presented: () => void
+    presented: (menuHeight?: number) => void
   }
   ocr: {
     capture: () => Promise<OcrLine[] | null>

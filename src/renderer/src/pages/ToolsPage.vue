@@ -140,60 +140,85 @@ onMounted(async () => {
     <div class="grid">
       <div class="tool-card" :class="{ disabled: !!busy }">
         <button class="tc-main" :disabled="!!busy" @click="openReader">
-          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
-            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M2 5a2 2 0 0 1 2-2h7v16H4a2 2 0 0 0-2 2z" />
-            <path d="M22 5a2 2 0 0 0-2-2h-7v16h7a2 2 0 0 1 2 2z" />
-          </svg>
-          <span class="tc-name">电子书阅读</span>
-          <span class="tc-desc">{{ busy === 'reader' ? '正在打开…' : '在独立窗口阅读 EPUB / PDF / TXT 等' }}</span>
+          <span class="tc-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 5a2 2 0 0 1 2-2h7v16H4a2 2 0 0 0-2 2z" />
+              <path d="M22 5a2 2 0 0 0-2-2h-7v16h7a2 2 0 0 1 2 2z" />
+            </svg>
+          </span>
+          <span class="tc-text">
+            <span class="tc-name">电子书阅读</span>
+            <span class="tc-desc">{{ busy === 'reader' ? '正在打开…' : '阅读 EPUB / PDF / TXT 等书籍' }}</span>
+          </span>
         </button>
       </div>
 
       <div class="tool-card" :class="{ disabled: !!busy || !cloudReady }">
         <button class="tc-main" :disabled="!!busy || !cloudReady" @click="startOcr">
-          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
-            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M17.5 19a4.5 4.5 0 0 0 .5-9 6 6 0 0 0-11.6-1.5A4 4 0 0 0 6.5 19z" />
-          </svg>
-          <span class="tc-name">OCR</span>
-          <span class="tc-desc">{{ busy === 'ocr' ? '正在截屏…' : '框选屏幕区域识别文字' }}</span>
+          <span class="tc-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17.5 19a4.5 4.5 0 0 0 .5-9 6 6 0 0 0-11.6-1.5A4 4 0 0 0 6.5 19z" />
+            </svg>
+          </span>
+          <span class="tc-text">
+            <span class="tc-name">OCR</span>
+            <span class="tc-desc">{{ busy === 'ocr' ? '正在截屏…' : '框选屏幕区域识别文字' }}</span>
+          </span>
         </button>
         <label class="tc-opt" @click.stop>
           <span>识别时隐藏主窗口</span>
-          <input type="checkbox" v-model="hideOcr" @change="onHideToggle('hideMainOnOcr', hideOcr)" />
+          <span class="switch">
+            <input type="checkbox" v-model="hideOcr" @change="onHideToggle('hideMainOnOcr', hideOcr)" />
+            <span class="track"></span>
+          </span>
         </label>
       </div>
 
       <div class="tool-card" :class="{ disabled: !!busy }">
         <button class="tc-main" :disabled="!!busy" @click="startShot">
-          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
-            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 7h3l2-2h6l2 2h3v12H4z" />
-            <circle cx="12" cy="13" r="3.2" />
-          </svg>
-          <span class="tc-name">截屏</span>
-          <span class="tc-desc">{{ busy === 'shot' ? '正在截屏…' : '截屏标注、保存或钉在桌面' }}</span>
+          <span class="tc-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 7h3l2-2h6l2 2h3v12H4z" />
+              <circle cx="12" cy="13" r="3.2" />
+            </svg>
+          </span>
+          <span class="tc-text">
+            <span class="tc-name">截屏</span>
+            <span class="tc-desc">{{ busy === 'shot' ? '正在截屏…' : '截屏标注、保存或钉在桌面' }}</span>
+          </span>
         </button>
         <label class="tc-opt" @click.stop>
           <span>截屏时隐藏主窗口</span>
-          <input type="checkbox" v-model="hideShot" @change="onHideToggle('hideMainOnShot', hideShot)" />
+          <span class="switch">
+            <input type="checkbox" v-model="hideShot" @change="onHideToggle('hideMainOnShot', hideShot)" />
+            <span class="track"></span>
+          </span>
         </label>
       </div>
 
       <div class="tool-card" :class="{ disabled: !!busy }">
         <button class="tc-main" :disabled="!!busy" @click="startColor">
-          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"
-            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 3a7 7 0 0 0-7 7c0 4 7 11 7 11s7-7 7-11a7 7 0 0 0-7-7z" />
-            <circle cx="12" cy="10" r="2.6" />
-          </svg>
-          <span class="tc-name">取色</span>
-          <span class="tc-desc">{{ busy === 'color' ? '正在取色…' : '拾取屏幕任意像素颜色' }}</span>
+          <span class="tc-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3a7 7 0 0 0-7 7c0 4 7 11 7 11s7-7 7-11a7 7 0 0 0-7-7z" />
+              <circle cx="12" cy="10" r="2.6" />
+            </svg>
+          </span>
+          <span class="tc-text">
+            <span class="tc-name">取色</span>
+            <span class="tc-desc">{{ busy === 'color' ? '正在取色…' : '拾取屏幕任意像素颜色' }}</span>
+          </span>
         </button>
         <label class="tc-opt" @click.stop>
           <span>取色时隐藏主窗口</span>
-          <input type="checkbox" v-model="hideColor" @change="onHideToggle('hideMainOnColor', hideColor)" />
+          <span class="switch">
+            <input type="checkbox" v-model="hideColor" @change="onHideToggle('hideMainOnColor', hideColor)" />
+            <span class="track"></span>
+          </span>
         </label>
       </div>
     </div>
@@ -261,35 +286,34 @@ onMounted(async () => {
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
 }
 .tool-card {
   display: flex;
   flex-direction: column;
-  padding: 16px 16px 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(17, 17, 17, 0.1);
-  background: var(--surface, #fff);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--fluent-stroke, rgba(17, 17, 17, 0.06));
+  background: color-mix(in srgb, var(--surface, #fff) 70%, transparent);
   color: var(--text-strong, #1f2329);
   font-family: inherit;
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  transition: background 0.14s ease, border-color 0.14s ease;
 }
 .tool-card:hover:not(.disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  background: var(--surface, #fff);
+  border-color: color-mix(in srgb, var(--accent-ink) 22%, transparent);
 }
 .tool-card.disabled {
-  opacity: 0.6;
+  opacity: 0.55;
 }
 .tc-main {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  flex: 1;
-  padding: 4px 4px 8px;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
   border: none;
   background: transparent;
   color: inherit;
@@ -300,31 +324,95 @@ onMounted(async () => {
 .tc-main:disabled {
   cursor: not-allowed;
 }
+.tc-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  color: var(--accent-ink, #1f2329);
+  background: color-mix(in srgb, var(--accent-ink) 9%, transparent);
+}
+.tool-card:hover:not(.disabled) .tc-icon {
+  background: color-mix(in srgb, var(--accent-ink) 14%, transparent);
+}
+.tc-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
 .tc-opt {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid rgba(17, 17, 17, 0.08);
+  border-top: 1px solid var(--fluent-stroke, rgba(17, 17, 17, 0.06));
   font-size: 12.5px;
   color: var(--text-dim, #6b7280);
   cursor: pointer;
 }
-.tc-opt input {
-  width: 15px;
-  height: 15px;
+.switch {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.switch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
   cursor: pointer;
-  accent-color: var(--accent, #2563eb);
+  z-index: 1;
+}
+.switch .track {
+  display: block;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(240, 160, 32, 0.25);
+  transition: background 0.18s ease;
+}
+.switch .track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f0a020;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+.switch input:checked + .track {
+  background: rgba(24, 160, 88, 0.25);
+}
+.switch input:checked + .track::after {
+  background: #18a058;
+}
+.switch input:checked + .track::after {
+  transform: translateX(14px);
+}
+.switch input:focus-visible + .track {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: 2px;
 }
 .tc-name {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
 }
 .tc-desc {
-  font-size: 12.5px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.45;
   color: var(--text-dim, #8a909c);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .hint {
   margin-top: 14px;

@@ -12,6 +12,7 @@ function coverUrl(coverFile: string | null): string | null {
 }
 import { getReaderDb } from './db'
 import { registerBookFile, startReaderServer } from './server'
+import { readerWindowIcon } from './appIcon'
 import { convertTxtToEpub } from './txtEpub'
 import type { ReaderBook } from '../../shared/types'
 
@@ -76,6 +77,7 @@ async function ensureImportWindow(): Promise<BrowserWindow> {
     show: false,
     width: 800,
     height: 600,
+    ...readerWindowIcon(),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -114,7 +116,25 @@ async function extractMetadata(bookFilePath: string): Promise<FoliateMetadata | 
   })
 }
 
-function rowToBook(row: Record<string, unknown>): ReaderBook {
+function categoryIdsOf(bookId: string): string[] {
+  const rows = getReaderDb()
+    .prepare('SELECT category_id FROM reader_book_categories WHERE book_id = ?')
+    .all(bookId) as Array<{ category_id: string }>
+  return rows.map((r) => r.category_id)
+}
+
+function rowToBook(
+  row: Record<string, unknown>,
+  categoryIds?: string[]
+): ReaderBook {
+  let ids: string[]
+  if (categoryIds) {
+    ids = categoryIds
+  } else if (typeof row.category_ids === 'string') {
+    ids = row.category_ids ? row.category_ids.split(',') : []
+  } else {
+    ids = categoryIdsOf(String(row.id))
+  }
   return {
     id: String(row.id),
     title: String(row.title),
@@ -127,7 +147,8 @@ function rowToBook(row: Record<string, unknown>): ReaderBook {
     importedAt: Number(row.imported_at),
     lastReadAt: (row.last_read_at as number | null) ?? null,
     percentage: Number(row.percentage ?? 0),
-    chapterTitle: (row.chapter_title as string | null) ?? null
+    chapterTitle: (row.chapter_title as string | null) ?? null,
+    categoryIds: ids
   }
 }
 
@@ -137,10 +158,23 @@ const SELECT_BOOK = `
   LEFT JOIN reader_state s ON s.book_id = b.id`
 
 export function listReaderBooks(): ReaderBook[] {
+  // 一次查出每本书的分类 id，避免逐本子查询
+  const catRows = getReaderDb()
+    .prepare('SELECT book_id, category_id FROM reader_book_categories')
+    .all() as Array<{ book_id: string; category_id: string }>
+  const catMap = new Map<string, string[]>()
+  for (const r of catRows) {
+    const arr = catMap.get(r.book_id)
+    if (arr) arr.push(r.category_id)
+    else catMap.set(r.book_id, [r.category_id])
+  }
   return getReaderDb()
     .prepare(`${SELECT_BOOK} ORDER BY COALESCE(b.last_read_at, b.imported_at) DESC`)
     .all()
-    .map((r) => rowToBook(r as Record<string, unknown>))
+    .map((r) => {
+      const row = r as Record<string, unknown>
+      return rowToBook(row, catMap.get(String(row.id)) ?? [])
+    })
 }
 
 export async function importBook(sourcePath: string): Promise<ReaderBook> {
@@ -202,6 +236,21 @@ export async function importBook(sourcePath: string): Promise<ReaderBook> {
 
   const row = getReaderDb().prepare(`${SELECT_BOOK} WHERE b.id = ?`).get(id) as Record<string, unknown>
   return rowToBook(row)
+}
+
+// 修改书名 / 作者（仅改书库元数据，不动书文件内部元信息）
+export function renameReaderBook(
+  id: string,
+  title: string,
+  author: string | null
+): ReaderBook | null {
+  getReaderDb()
+    .prepare('UPDATE reader_books SET title = ?, author = ? WHERE id = ?')
+    .run(title, author, id)
+  const row = getReaderDb()
+    .prepare(`${SELECT_BOOK} WHERE b.id = ?`)
+    .get(id) as Record<string, unknown> | undefined
+  return row ? rowToBook(row) : null
 }
 
 // 删除书：记录、书库文件、封面文件一并删除（批注/进度由外键级联）

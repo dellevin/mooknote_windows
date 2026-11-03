@@ -4,13 +4,16 @@ import {
   openReaderWindow,
   focusReaderWindow,
   openBookInWindow,
-  backToShelf
+  backToShelf,
+  isReaderOpen,
+  closeReaderWindow
 } from './readerWindow'
 import {
   listReaderBooks,
   importBook,
   deleteReaderBook,
-  setBookCover
+  setBookCover,
+  renameReaderBook
 } from './importer'
 import {
   saveProgress,
@@ -19,7 +22,17 @@ import {
   removeAnnotationByValue,
   type ReaderAnnotation
 } from './library'
-import type { ReaderBook } from '../../shared/types'
+import {
+  listCategories,
+  addCategory,
+  renameCategory,
+  deleteCategory,
+  setCategoryHidden,
+  reorderCategories,
+  setBookCategories
+} from './categories'
+import { exportReaderBackup, importReaderBackup, BACKUP_EXT } from './backup'
+import type { ReaderBook, ReaderCategory } from '../../shared/types'
 
 export function registerReaderIpc(): void {
   // 打开书架窗口（工具栏入口）
@@ -29,6 +42,10 @@ export function registerReaderIpc(): void {
   })
 
   ipcMain.handle('reader:focus', () => focusReaderWindow())
+
+  // 主界面侧栏：查询/关闭正在运行的阅读器窗口
+  ipcMain.handle('reader:is-open', () => isReaderOpen())
+  ipcMain.handle('reader:close-window', () => closeReaderWindow())
 
   ipcMain.handle('reader:list', (): ReaderBook[] => listReaderBooks())
 
@@ -73,6 +90,21 @@ export function registerReaderIpc(): void {
   )
 
   ipcMain.handle('reader:delete', (_e, id: string): boolean => deleteReaderBook(id))
+
+  // 修改书名 / 作者（作者留空存 null）
+  ipcMain.handle(
+    'reader:rename',
+    (
+      _e,
+      id: string,
+      payload: { title: string; author: string }
+    ): ReaderBook | null => {
+      const title = String(payload?.title ?? '').trim()
+      if (!id || !title) return null
+      const author = String(payload?.author ?? '').trim()
+      return renameReaderBook(id, title, author || null)
+    }
+  )
 
   // 书架打开某本书 → 窗口切换到 foliate-js 阅读页
   ipcMain.handle('reader:open-book', (_e, id: string): Promise<boolean> =>
@@ -152,6 +184,84 @@ export function registerReaderIpc(): void {
   ipcMain.handle('reader:bookmark-remove', (_e, bookId: string, cfi: string): boolean =>
     removeAnnotationByValue(bookId, cfi)
   )
+
+  // ---- 分类 ----
+  ipcMain.handle('reader:cat-list', (): ReaderCategory[] => listCategories())
+
+  ipcMain.handle(
+    'reader:cat-add',
+    (_e, name: string): { ok: boolean; category?: ReaderCategory; error?: string } => {
+      try {
+        return { ok: true, category: addCategory(name) }
+      } catch (err) {
+        return { ok: false, error: String(err) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'reader:cat-rename',
+    (_e, id: string, name: string): boolean => renameCategory(id, name)
+  )
+
+  ipcMain.handle('reader:cat-delete', (_e, id: string): boolean => deleteCategory(id))
+
+  ipcMain.handle(
+    'reader:cat-set-hidden',
+    (_e, id: string, hidden: boolean): boolean => setCategoryHidden(id, !!hidden)
+  )
+
+  ipcMain.handle('reader:cat-reorder', (_e, orderedIds: string[]): boolean => {
+    if (!Array.isArray(orderedIds)) return false
+    reorderCategories(orderedIds.map(String))
+    return true
+  })
+
+  ipcMain.handle(
+    'reader:cat-set-book',
+    (_e, bookId: string, categoryIds: string[]): boolean => {
+      if (!bookId || !Array.isArray(categoryIds)) return false
+      setBookCategories(bookId, categoryIds)
+      return true
+    }
+  )
+
+  // ---- 书库备份 / 恢复（迁移） ----
+  ipcMain.handle('reader:backup-export', async (e): Promise<{ ok: boolean; path?: string; error?: string }> => {
+    try {
+      const parent = BrowserWindow.fromWebContents(e.sender)
+      const stamp = new Date()
+      const ymd = `${stamp.getFullYear()}${String(stamp.getMonth() + 1).padStart(2, '0')}${String(
+        stamp.getDate()
+      ).padStart(2, '0')}`
+      const result = await dialog.showSaveDialog(parent!, {
+        title: '导出书库备份',
+        defaultPath: `mooknote-reader-${ymd}.${BACKUP_EXT}`,
+        filters: [{ name: 'MookNote 书库备份', extensions: [BACKUP_EXT] }]
+      })
+      if (result.canceled || !result.filePath) return { ok: false }
+      exportReaderBackup(result.filePath)
+      return { ok: true, path: result.filePath }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('reader:backup-import', async (e): Promise<{ ok: boolean; books?: number; error?: string }> => {
+    try {
+      const parent = BrowserWindow.fromWebContents(e.sender)
+      const result = await dialog.showOpenDialog(parent!, {
+        title: '导入书库备份',
+        properties: ['openFile'],
+        filters: [{ name: 'MookNote 书库备份', extensions: [BACKUP_EXT] }]
+      })
+      if (result.canceled || !result.filePaths[0]) return { ok: false }
+      const { books } = importReaderBackup(result.filePaths[0])
+      return { ok: true, books }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    }
+  })
 
   // foliate-js 运行时事件：转发给同窗口主 frame（阅读页 app.js 监听）
   ipcMain.on('reader:event', (e, name: string, data: unknown) => {

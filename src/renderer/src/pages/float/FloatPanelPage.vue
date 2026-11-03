@@ -16,6 +16,7 @@ const colorEnabled = ref(true)
 const picked = ref<PickedColor | null>(null)
 // 主进程每次展示前都会先推送 mode；首个 mode 到达前保持透明，避免先画上一种模式再切换（闪烁）
 const shown = ref(false)
+const menuEl = ref<HTMLElement | null>(null)
 
 const cloudLabel = computed(() => 'OCR')
 
@@ -152,9 +153,14 @@ onMounted(async () => {
       colorEnabled.value = (await window.mook.prefs.get<boolean>('colorEnabled', true)) !== false
     }
     shown.value = true
-    // 等正确模式画面渲染上屏后再通知主进程显示窗口，避免先闪旧内容一帧
+    // 等正确模式画面渲染上屏后再通知主进程显示窗口，避免先闪旧内容一帧。
+    // 注意：不能用 requestAnimationFrame——面板窗显示前处于隐藏状态，Chromium 会暂停 rAF，
+    // 会导致主进程 220ms 后备先以旧高度弹窗、真实高度被丢弃（菜单离球出现空隙）。
+    // nextTick 后 offsetHeight 会强制同步布局，可直接拿到准确高度。
     await nextTick()
-    window.requestAnimationFrame(() => window.mook.float.presented())
+    window.mook.float.presented(
+      mode.value === 'menu' ? menuEl.value?.offsetHeight : undefined
+    )
   })
   offHidden = window.mook.float.onHidden(() => {
     shown.value = false
@@ -182,7 +188,7 @@ onBeforeUnmount(() => {
       <div v-if="toast" class="toast">{{ toast }}</div>
     </Transition>
     <!-- 功能菜单 -->
-    <div v-if="mode === 'menu'" class="menu-card">
+    <div v-if="mode === 'menu'" ref="menuEl" class="menu-card">
       <button v-if="ocrMenuEnabled" class="menu-item" :disabled="capturing || shooting || !cloudReady" @click="startOcr">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

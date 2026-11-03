@@ -61,6 +61,17 @@ export const SKINS: SkinDef[] = [
     primaryPressed: '#003fb0',
     onPrimary: '#ffffff',
     ink: '#0052d9'
+  },
+  {
+    key: 'parchment',
+    label: '羊皮纸',
+    swatch: 'linear-gradient(135deg, #f5f1e8, #e6dec9)',
+    glyph: '#8a5a2b',
+    primary: '#d1622a',
+    primaryHover: '#dd7440',
+    primaryPressed: '#b8541f',
+    onPrimary: '#ffffff',
+    ink: '#b85a24'
   }
 ]
 

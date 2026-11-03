@@ -4,11 +4,32 @@ import { registerBookFile, startReaderServer } from './server'
 import { getBookFilePath } from './importer'
 import { getProgress } from './library'
 import { prefs } from '../prefs'
+import { readerWindowIcon } from './appIcon'
 
 let readerWin: BrowserWindow | null = null
 
 export function getReaderWindow(): BrowserWindow | null {
   return readerWin && !readerWin.isDestroyed() ? readerWin : null
+}
+
+// 通知主界面侧栏：阅读器是否正在运行（微信式的“打开中”状态）
+function notifyReaderState(open: boolean): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed() || win === readerWin) continue
+    win.webContents.send('reader:state-changed', open)
+  }
+}
+
+export function isReaderOpen(): boolean {
+  return !!readerWin && !readerWin.isDestroyed()
+}
+
+// 从侧栏“杀死”阅读器窗口
+export function closeReaderWindow(): boolean {
+  const win = getReaderWindow()
+  if (!win) return false
+  win.close()
+  return true
 }
 
 // 打开（或聚焦）阅读窗口的书架视图
@@ -25,10 +46,12 @@ export function openReaderWindow(): BrowserWindow {
     height: 820,
     minWidth: 820,
     minHeight: 560,
-    frame: true,
+    // 无边框 + 自绘标题栏（hidden 在 Windows 上仍保留系统拖拽贴边/贴靠与正确的最大化边距）
+    titleBarStyle: 'hidden',
     autoHideMenuBar: true,
     title: 'MookNote 阅读',
     backgroundColor: '#f5f1e8',
+    ...readerWindowIcon(),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -39,8 +62,17 @@ export function openReaderWindow(): BrowserWindow {
 
   loadShelf(readerWin)
 
+  notifyReaderState(true)
+
+  // 自绘标题栏的最大化/还原图标跟随
+  const pushMax = (): void =>
+    readerWin?.webContents.send('win:max-changed', readerWin.isMaximized())
+  readerWin.on('maximize', pushMax)
+  readerWin.on('unmaximize', pushMax)
+
   readerWin.on('closed', () => {
     readerWin = null
+    notifyReaderState(false)
   })
 
   return readerWin

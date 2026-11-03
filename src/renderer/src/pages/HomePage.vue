@@ -652,11 +652,13 @@ onMounted(async () => {
   grid-auto-columns: minmax(0, 1fr);
   gap: var(--heat-gap, 3px);
   margin-bottom: 5px;
+  overflow: hidden;
 }
 .heat-month {
   font-size: 10px;
   color: #8a909c;
   white-space: nowrap;
+  overflow: hidden;
 }
 .heat-grid {
   display: grid;
@@ -672,7 +674,7 @@ onMounted(async () => {
 .heat-cell {
   aspect-ratio: 1;
   width: 100%;
-  min-width: 6px;
+  min-width: 0;
   border-radius: 2px;
 }
 .heat-cell.blank {

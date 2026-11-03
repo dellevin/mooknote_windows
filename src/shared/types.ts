@@ -760,6 +760,16 @@ export interface ReaderBook {
   lastReadAt: number | null
   percentage: number
   chapterTitle: string | null
+  categoryIds: string[]
+}
+
+export interface ReaderCategory {
+  id: string
+  name: string
+  sortOrder: number
+  createdAt: number
+  count: number
+  hidden: boolean
 }
 
 export interface ReaderBookInput {

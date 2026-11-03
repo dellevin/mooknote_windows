@@ -134,10 +134,25 @@ type NavItem = {
   accent?: string
   raw?: boolean
   moduleIcon?: string | null
+  runningReader?: boolean
 }
 type NavGroup = { title: string; items: NavItem[] }
 
 const customModules = ref<CustomModule[]>([])
+
+// 独立阅读器窗口是否正在运行（侧栏微信式“打开中”入口）
+const readerRunning = ref(false)
+async function refreshReaderRunning(): Promise<void> {
+  readerRunning.value = await window.mook.reader.isOpen()
+}
+function focusReader(): void {
+  void window.mook.reader.focus()
+}
+function killReader(e: MouseEvent): void {
+  e.stopPropagation()
+  e.preventDefault()
+  void window.mook.reader.closeWindow()
+}
 
 async function loadCustomModules(): Promise<void> {
   customModules.value = await window.mook.customModule.list()
@@ -184,7 +199,12 @@ const navGroups = computed<NavGroup[]>(() => [
   },
   {
     title: '',
-    items: [{ label: '设置', to: '/settings', icon: I.gear }]
+    items: [
+      ...(readerRunning.value
+        ? [{ label: '阅读器', to: '/reader-running', icon: I.book, accent: '#16a34a', runningReader: true }]
+        : []),
+      { label: '设置', to: '/settings', icon: I.gear }
+    ]
   }
 ])
 
@@ -290,6 +310,8 @@ onMounted(async () => {
   const shell = await window.mook.window.shellInfo()
   material.value = shell.material
   window.addEventListener('custom-modules-changed', onModulesChanged)
+  await refreshReaderRunning()
+  window.mook.reader.onStateChanged((open: boolean) => (readerRunning.value = open))
   window.mook.window.onMaximizedChange((v) => (isMaximized.value = v))
   window.mook.window.onCloseQuery(() => {
     closeRemember.value = false
@@ -396,9 +418,35 @@ function onRailPointerUp(): void {
                 >
                   <div v-if="gi > 0" class="rail-divider"></div>
                   <div v-if="group.title" class="nav-group-title">{{ group.title }}</div>
+                  <template v-for="item in group.items" :key="item.to">
+                  <button
+                    v-if="item.runningReader"
+                    type="button"
+                    class="rail-item rail-item-running"
+                    title="点击切换到阅读器"
+                    @click="focusReader"
+                  >
+                    <span class="rail-running-dot"></span>
+                    <svg
+                      class="rail-icon"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      v-html="item.icon"
+                    />
+                    <span class="rail-label">{{ item.label }}</span>
+                    <span class="rail-running-close" title="关闭阅读器" @click="killReader">
+                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
+                        stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                        <path d="M18 6 6 18M6 6l12 12" />
+                      </svg>
+                    </span>
+                  </button>
                   <router-link
-                    v-for="item in group.items"
-                    :key="item.to"
+                    v-else
                     :to="item.to"
                     class="rail-item"
                     exact-active-class="active"
@@ -422,6 +470,7 @@ function onRailPointerUp(): void {
                     />
                     <span class="rail-label">{{ item.label }}</span>
                   </router-link>
+                  </template>
                 </div>
               </div>
             </nav>
@@ -756,6 +805,50 @@ body.rail-resizing {
   background: var(--rail-item-hover);
   color: var(--rail-text-strong);
   font-weight: 600;
+}
+
+/* 正在运行的阅读器：微信式状态入口（绿色圆点 + 关闭钮） */
+.rail-item-running {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  color: #16a34a;
+}
+.rail-running-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18);
+  animation: rail-dot-pulse 2s ease-in-out infinite;
+}
+@keyframes rail-dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18); }
+  50% { box-shadow: 0 0 0 5px rgba(22, 163, 74, 0.08); }
+}
+.rail-item-running .rail-label { font-weight: 600; }
+.rail-running-close {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--rail-text);
+  opacity: 0;
+  transition: opacity 0.12s, background-color 0.12s, color 0.12s;
+}
+.rail-item-running:hover .rail-running-close { opacity: 0.75; }
+.rail-running-close:hover {
+  opacity: 1 !important;
+  background: #e81123;
+  color: #fff;
 }
 
 .content {
