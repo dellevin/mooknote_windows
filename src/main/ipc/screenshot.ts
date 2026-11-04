@@ -25,7 +25,21 @@ interface ShotSession {
 
 let session: ShotSession | null = null
 
-function finishSession(canceled: boolean, lines: OcrLine[] | null = null): void {
+function destroyWindows(s: ShotSession, delay: number): void {
+  if (delay <= 0) {
+    for (const w of s.windows) {
+      if (!w.isDestroyed()) w.destroy()
+    }
+    return
+  }
+  setTimeout(() => {
+    for (const w of s.windows) {
+      if (!w.isDestroyed()) w.destroy()
+    }
+  }, delay)
+}
+
+function finishSession(canceled: boolean, lines: OcrLine[] | null = null, immediate = false): void {
   if (!session || session.ended) return
   const s = session
   s.ended = true
@@ -33,12 +47,15 @@ function finishSession(canceled: boolean, lines: OcrLine[] | null = null): void 
   setBallBusy(false)
   s.restoreMain?.()
   s.resolve({ canceled, lines })
-  // 延迟销毁，先让 invoke 应答回到选区窗口
-  setTimeout(() => {
-    for (const w of s.windows) {
-      if (!w.isDestroyed()) w.destroy()
-    }
-  }, 150)
+  // 正常流程延迟销毁，先让 invoke 应答回到选区窗口；强制清理残留时立即销毁
+  destroyWindows(s, immediate ? 0 : 150)
+}
+
+// 发送方是否为当前会话的选区窗（防止残留窗口 IPC 影响新会话）
+function ownsWindow(sender: Electron.WebContents): boolean {
+  if (!session) return false
+  const w = BrowserWindow.fromWebContents(sender)
+  return !!w && session.windows.includes(w)
 }
 
 // 把选区窗边界强制撑满整块显示器并顶到 screen-saver 层级，确保盖住 Win11 真实任务栏。
@@ -73,7 +90,8 @@ function overlayUrl(displayId: string): { url?: string; file?: string; hash?: st
 export function registerScreenshotIpc(): void {
   // 悬浮球面板：进入微信式截屏标注；保存/钉住/取消后返回
   ipcMain.handle('shot:capture', async () => {
-    if (session) return { canceled: true, lines: null }
+    // 存在残留会话时先强制清理并开启新会话，而不是静默返回取消（点了没反应）
+    if (session) finishSession(true, null, true)
 
     const restoreMain = hideMainWindowIfPref('hideMainOnShot')
     hidePanel()
@@ -186,34 +204,37 @@ export function registerScreenshotIpc(): void {
 
   // 选区窗口：取本显示器截屏底图与缩放比
   ipcMain.handle('shot:overlay-init', (e, displayId: unknown) => {
-    if (!session) return null
+    const s = session
+    if (!s || !ownsWindow(e.sender)) return null
     const id = String(displayId)
-    const dataUrl = session.backgrounds.get(id)
+    const dataUrl = s.backgrounds.get(id)
     if (!dataUrl) return null
     // 此时渲染端已挂载、窗口已完成首帧，是压制 Win11 任务栏的可靠时机
     raiseShotWindow(e.sender, id)
     return {
       dataUrl,
-      scaleFactor: session.scales.get(id) ?? 1,
-      pixels: session.pixels.get(id) ?? null
+      scaleFactor: s.scales.get(id) ?? 1,
+      pixels: s.pixels.get(id) ?? null
     }
   })
 
   // 选区窗口：对裁剪后的原图做云端 OCR，识别完成后结束选区会话，由悬浮球面板弹出结果
-  ipcMain.handle('shot:overlay-ocr', async (_e, png: ArrayBuffer): Promise<{ ok: boolean }> => {
+  ipcMain.handle('shot:overlay-ocr', async (e, png: ArrayBuffer): Promise<{ ok: boolean }> => {
+    if (!ownsWindow(e.sender)) return { ok: false }
     const lines = await recognizeCloud(Buffer.from(png))
     finishSession(false, lines)
     return { ok: true }
   })
 
   // Esc / 右键 / 关闭按钮
-  ipcMain.handle('shot:overlay-cancel', () => {
-    finishSession(true)
+  ipcMain.handle('shot:overlay-cancel', (e) => {
+    if (ownsWindow(e.sender)) finishSession(true)
     return { ok: true }
   })
 
   // 保存标注后的截图：弹系统另存为，写入 PNG，随后结束会话
   ipcMain.handle('shot:overlay-save', async (e, png: ArrayBuffer) => {
+    if (!ownsWindow(e.sender)) return { ok: false, canceled: true }
     const buf = Buffer.from(png)
     const stamp = new Date()
       .toISOString()
@@ -226,11 +247,14 @@ export function registerScreenshotIpc(): void {
     for (const w of overlays) {
       if (!w.isDestroyed()) w.setAlwaysOnTop(false)
     }
-    const r = await dialog.showSaveDialog(parent ?? undefined, {
+    const saveOpts: Electron.SaveDialogOptions = {
       title: '保存截图',
       defaultPath: `mooknote-${stamp}.png`,
       filters: [{ name: 'PNG 图片', extensions: ['png'] }]
-    })
+    }
+    const r = parent
+      ? await dialog.showSaveDialog(parent, saveOpts)
+      : await dialog.showSaveDialog(saveOpts)
     if (r.canceled || !r.filePath) {
       // 用户取消：恢复选区窗置顶层级，继续截屏会话
       for (const w of overlays) {
@@ -248,6 +272,7 @@ export function registerScreenshotIpc(): void {
   ipcMain.handle(
     'shot:overlay-pin',
     (e, payload: { dataUrl?: string; width?: number; height?: number; x?: number; y?: number }) => {
+      if (!ownsWindow(e.sender)) return { ok: false }
       const dataUrl = String(payload?.dataUrl ?? '')
       const width = Math.max(40, Math.round(Number(payload?.width) || 200))
       const height = Math.max(40, Math.round(Number(payload?.height) || 120))

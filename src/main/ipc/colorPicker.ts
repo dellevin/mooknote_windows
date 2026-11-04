@@ -23,7 +23,21 @@ interface ColorSession {
 
 let session: ColorSession | null = null
 
-function finishSession(canceled: boolean, color: PickedColor | null = null): void {
+function destroyWindows(s: ColorSession, delay: number): void {
+  if (delay <= 0) {
+    for (const w of s.windows) {
+      if (!w.isDestroyed()) w.destroy()
+    }
+    return
+  }
+  setTimeout(() => {
+    for (const w of s.windows) {
+      if (!w.isDestroyed()) w.destroy()
+    }
+  }, delay)
+}
+
+function finishSession(canceled: boolean, color: PickedColor | null = null, immediate = false): void {
   if (!session || session.ended) return
   const s = session
   s.ended = true
@@ -31,11 +45,16 @@ function finishSession(canceled: boolean, color: PickedColor | null = null): voi
   setBallBusy(false)
   s.restoreMain?.()
   s.resolve({ canceled, color })
-  setTimeout(() => {
-    for (const w of s.windows) {
-      if (!w.isDestroyed()) w.destroy()
-    }
-  }, 150)
+  // 正常取色延迟销毁，先让 invoke 应答回到覆盖窗；强制清理残留会话时立即销毁，
+  // 避免旧窗口后续的取消 IPC 误杀下一个会话
+  destroyWindows(s, immediate ? 0 : 150)
+}
+
+// 发送方是否为当前会话的覆盖窗（防止上一会话的残留窗口 IPC 影响新会话）
+function ownsWindow(sender: Electron.WebContents): boolean {
+  if (!session) return false
+  const w = BrowserWindow.fromWebContents(sender)
+  return !!w && session.windows.includes(w)
 }
 
 function raiseColorWindow(sender: Electron.WebContents, displayId: string): void {
@@ -57,7 +76,9 @@ function overlayUrl(displayId: string): { url?: string; file?: string; hash?: st
 
 export function registerColorPickerIpc(): void {
   ipcMain.handle('color:capture', async () => {
-    if (session) return { canceled: true, color: null }
+    // 存在未正常收尾的残留会话时，先强制清理并开启新会话，而不是静默返回取消
+    // （否则多屏覆盖窗初始化竞态后，所有取色请求都会“点了没反应”）
+    if (session) finishSession(true, null, true)
 
     const restoreMain = hideMainWindowIfPref('hideMainOnColor')
     hidePanel()
@@ -162,16 +183,18 @@ export function registerColorPickerIpc(): void {
   })
 
   ipcMain.handle('color:overlay-init', (e, displayId: unknown) => {
-    if (!session) return null
+    const s = session
+    if (!s || !ownsWindow(e.sender)) return null
     const id = String(displayId)
-    const dataUrl = session.backgrounds.get(id)
+    const dataUrl = s.backgrounds.get(id)
     if (!dataUrl) return null
     raiseColorWindow(e.sender, id)
-    return { dataUrl, pixels: session.pixels.get(id) ?? null }
+    return { dataUrl, pixels: s.pixels.get(id) ?? null }
   })
 
   // 点击像素取色：结束会话，由悬浮球面板弹颜色结果
-  ipcMain.handle('color:overlay-pick', (_e, color: unknown) => {
+  ipcMain.handle('color:overlay-pick', (e, color: unknown) => {
+    if (!ownsWindow(e.sender)) return { ok: false }
     const c = color as Partial<PickedColor> | null
     if (
       c &&
@@ -185,8 +208,9 @@ export function registerColorPickerIpc(): void {
     return { ok: true }
   })
 
-  ipcMain.handle('color:overlay-cancel', () => {
-    finishSession(true)
+  ipcMain.handle('color:overlay-cancel', (e) => {
+    // 仅归属当前会话的窗口可取消，防止旧窗口的 Esc/右键误杀新会话
+    if (ownsWindow(e.sender)) finishSession(true)
     return { ok: true }
   })
 }

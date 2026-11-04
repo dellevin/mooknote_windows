@@ -147,10 +147,17 @@ onMounted(async () => {
     mode.value = m
     // 面板窗常驻复用：每次打开菜单都重读功能开关，否则设置里关闭后仍显示旧状态
     if (m === 'menu') {
-      shotEnabled.value = (await window.mook.prefs.get<boolean>('shotEnabled', true)) !== false
-      ocrMenuEnabled.value =
-        (await window.mook.prefs.get<boolean>('ocrMenuEnabled', true)) !== false
-      colorEnabled.value = (await window.mook.prefs.get<boolean>('colorEnabled', true)) !== false
+      // 面板窗常驻复用：每次打开菜单都重读配置，避免在设置页改完后状态不刷新
+      const [cfg, shot, ocrMenu, color] = await Promise.all([
+        window.mook.ocr.cloudConfig().catch(() => ({ configured: false })),
+        window.mook.prefs.get<boolean>('shotEnabled', true),
+        window.mook.prefs.get<boolean>('ocrMenuEnabled', true),
+        window.mook.prefs.get<boolean>('colorEnabled', true)
+      ])
+      cloudReady.value = !!cfg.configured
+      shotEnabled.value = shot !== false
+      ocrMenuEnabled.value = ocrMenu !== false
+      colorEnabled.value = color !== false
     }
     shown.value = true
     // 等正确模式画面渲染上屏后再通知主进程显示窗口，避免先闪旧内容一帧。
@@ -196,6 +203,7 @@ onBeforeUnmount(() => {
         </svg>
         <span>{{ capturing ? '正在截屏…' : cloudLabel }}</span>
       </button>
+      <div v-if="ocrMenuEnabled && !cloudReady" class="menu-hint">当前OCR配置暂不可用，请重新尝试</div>
       <button v-if="shotEnabled" class="menu-item" :disabled="capturing || shooting" @click="startShot">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -212,7 +220,6 @@ onBeforeUnmount(() => {
         </svg>
         <span>{{ picking ? '正在取色…' : '取色' }}</span>
       </button>
-      <div v-if="ocrMenuEnabled && !cloudReady" class="menu-hint">当前OCR配置暂不可用，请重新尝试</div>
     </div>
 
     <!-- 取色结果 -->

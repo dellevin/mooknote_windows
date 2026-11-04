@@ -21,7 +21,21 @@ interface CaptureSession {
 
 let session: CaptureSession | null = null
 
-function finishSession(lines: OcrLine[] | null): void {
+function destroyWindows(s: CaptureSession, delay: number): void {
+  if (delay <= 0) {
+    for (const w of s.windows) {
+      if (!w.isDestroyed()) w.destroy()
+    }
+    return
+  }
+  setTimeout(() => {
+    for (const w of s.windows) {
+      if (!w.isDestroyed()) w.destroy()
+    }
+  }, delay)
+}
+
+function finishSession(lines: OcrLine[] | null, immediate = false): void {
   if (!session || session.ended) return
   const s = session
   s.ended = true
@@ -29,12 +43,15 @@ function finishSession(lines: OcrLine[] | null): void {
   setBallBusy(false)
   s.restoreMain?.()
   s.resolve(lines)
-  // 延迟销毁，先让 invoke 应答回到选区窗口
-  setTimeout(() => {
-    for (const w of s.windows) {
-      if (!w.isDestroyed()) w.destroy()
-    }
-  }, 150)
+  // 正常流程延迟销毁，先让 invoke 应答回到选区窗口；强制清理残留时立即销毁
+  destroyWindows(s, immediate ? 0 : 150)
+}
+
+// 发送方是否为当前会话的选区窗（防止残留窗口 IPC 影响新会话）
+function ownsWindow(sender: Electron.WebContents): boolean {
+  if (!session) return false
+  const w = BrowserWindow.fromWebContents(sender)
+  return !!w && session.windows.includes(w)
 }
 
 // 把选区窗边界强制撑满整块显示器并顶到 screen-saver 层级，确保盖住 Win11 真实任务栏。
@@ -67,7 +84,8 @@ function overlayUrl(displayId: string): { url?: string; file?: string; hash?: st
 export function registerOcrIpc(): void {
   // 悬浮球面板：进入截屏选区，返回云端识别行；用户取消返回 null
   ipcMain.handle('ocr:capture', async () => {
-    if (session) return null
+    // 存在残留会话时先强制清理并开启新会话，而不是静默返回 null（点了没反应）
+    if (session) finishSession(null, true)
 
     const restoreMain = hideMainWindowIfPref('hideMainOnOcr')
     hidePanel()
@@ -184,21 +202,23 @@ export function registerOcrIpc(): void {
 
   // 选区窗口：取本显示器截屏底图与缩放比
   ipcMain.handle('ocr:overlay-init', (e, displayId: unknown) => {
-    if (!session) return null
+    const s = session
+    if (!s || !ownsWindow(e.sender)) return null
     const id = String(displayId)
-    const dataUrl = session.backgrounds.get(id)
+    const dataUrl = s.backgrounds.get(id)
     if (!dataUrl) return null
     // 此时渲染端已挂载、窗口已完成首帧，是压制 Win11 任务栏的可靠时机
     raiseCaptureWindow(e.sender, id)
     return {
       dataUrl,
-      scaleFactor: session.scales.get(id) ?? 1,
-      pixels: session.pixels.get(id) ?? null
+      scaleFactor: s.scales.get(id) ?? 1,
+      pixels: s.pixels.get(id) ?? null
     }
   })
 
   // 选区窗口：提交裁剪后的 PNG，主进程调用云端 OCR；失败抛错让选区窗口提示并可重试
-  ipcMain.handle('ocr:overlay-result', async (_e, png: ArrayBuffer) => {
+  ipcMain.handle('ocr:overlay-result', async (e, png: ArrayBuffer) => {
+    if (!ownsWindow(e.sender)) return { ok: false }
     const buf = Buffer.from(png)
     const lines = await recognizeCloud(buf)
     finishSession(lines)
@@ -229,8 +249,8 @@ export function registerOcrIpc(): void {
   })
 
   // 选区窗口：Esc / 右键取消
-  ipcMain.handle('ocr:overlay-cancel', () => {
-    finishSession(null)
+  ipcMain.handle('ocr:overlay-cancel', (e) => {
+    if (ownsWindow(e.sender)) finishSession(null)
     return { ok: true }
   })
 

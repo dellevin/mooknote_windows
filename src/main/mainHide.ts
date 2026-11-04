@@ -29,7 +29,13 @@ export function hideMainWindowIfPref(key: HidePrefKey): (() => void) | null {
   if (!win || win.isDestroyed() || !win.isVisible()) return null
   win.hide()
   return () => {
-    if (!win.isDestroyed()) win.show()
+    if (win.isDestroyed()) return
+    // 仅 show() 在有悬浮球等置顶窗同开时，可能只在后台恢复可见、抢不到前台，
+    // 导致取色/OCR 结果卡片被挡在后面（表现为“点了没反应”）。显式还原并聚焦到最前。
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.moveTop()
+    win.focus()
   }
 }
 

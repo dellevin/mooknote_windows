@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { darkTheme, zhCN, dateZhCN } from 'naive-ui'
+import { darkTheme, NModal, zhCN, dateZhCN } from 'naive-ui'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { toImgUrl } from '@/utils/image'
@@ -256,17 +256,18 @@ const nickname = ref('')
 const motto = ref('')
 const avatarUrl = ref('')
 const profileOpen = ref(false)
-const profileEditing = ref(false)
+const editOpen = ref(false)
 const draftNickname = ref('')
 const draftMotto = ref('')
 
 function startEditProfile(): void {
   draftNickname.value = nickname.value
   draftMotto.value = motto.value
-  profileEditing.value = true
+  profileOpen.value = false
+  editOpen.value = true
 }
 function cancelEditProfile(): void {
-  profileEditing.value = false
+  editOpen.value = false
 }
 async function saveProfile(): Promise<void> {
   nickname.value = draftNickname.value.trim() || 'MookNote'
@@ -275,7 +276,7 @@ async function saveProfile(): Promise<void> {
     window.mook.prefs.set('nickname', nickname.value),
     window.mook.prefs.set('motto', motto.value)
   ])
-  profileEditing.value = false
+  editOpen.value = false
 }
 async function pickAvatar(): Promise<void> {
   const rel = await window.mook.profile.pickAvatar()
@@ -284,9 +285,6 @@ async function pickAvatar(): Promise<void> {
   avatarUrl.value = toImgUrl(rel)
 }
 
-watch(profileOpen, (open: boolean) => {
-  if (!open) profileEditing.value = false
-})
 const isMaximized = ref(false)
 function winMinimize(): void {
   window.mook.window.minimize()
@@ -508,7 +506,6 @@ function onRailPointerUp(): void {
               <div class="profile-backdrop" @click="profileOpen = false"></div>
               <div class="profile-card">
                 <button
-                  v-if="!profileEditing"
                   class="profile-edit-icon"
                   title="编辑资料"
                   @click="startEditProfile"
@@ -518,45 +515,57 @@ function onRailPointerUp(): void {
                     <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
                   </svg>
                 </button>
-                <div
-                  class="profile-avatar"
-                  :class="{ editable: profileEditing }"
-                  :title="profileEditing ? '点击更换头像' : ''"
-                  @click="profileEditing && pickAvatar()"
-                >
+                <div class="profile-avatar">
                   <img v-if="avatarUrl" :src="avatarUrl" :alt="nickname" draggable="false" />
-                  <span v-else>{{ (profileEditing ? draftNickname : nickname).slice(0, 1) }}</span>
-                  <div v-if="profileEditing" class="profile-avatar-mask">更换</div>
+                  <span v-else>{{ nickname.slice(0, 1) }}</span>
                 </div>
+                <div class="profile-name">{{ nickname }}</div>
+                <div class="profile-motto">{{ motto || '这个人很懒，还没有写座右铭。' }}</div>
+              </div>
+            </div>
+          </transition>
 
-                <template v-if="!profileEditing">
-                  <div class="profile-name">{{ nickname }}</div>
-                  <div class="profile-motto">{{ motto || '这个人很懒，还没有写座右铭。' }}</div>
-                </template>
+          <!-- 编辑资料弹窗 -->
+          <NModal :show="editOpen" :auto-focus="false" @update:show="(v: boolean) => { if (!v) cancelEditProfile() }">
+            <div class="profile-edit-dlg">
+              <div class="ped-head">
+                <span class="ped-title">编辑资料</span>
+                <button class="ped-close" title="取消" @click="cancelEditProfile">✕</button>
+              </div>
+              <div class="ped-body">
+                <button class="ped-avatar" title="点击更换头像" @click="pickAvatar">
+                  <img v-if="avatarUrl" :src="avatarUrl" :alt="draftNickname" draggable="false" />
+                  <span v-else>{{ (draftNickname || 'M').slice(0, 1) }}</span>
+                  <span class="ped-avatar-mask">更换头像</span>
+                </button>
 
-                <template v-else>
+                <label class="ped-field">
+                  <span class="ped-label">昵称</span>
                   <input
                     v-model="draftNickname"
-                    class="profile-input"
+                    class="ped-input"
                     type="text"
                     maxlength="20"
                     placeholder="昵称"
                   />
+                </label>
+                <label class="ped-field">
+                  <span class="ped-label">座右铭</span>
                   <textarea
                     v-model="draftMotto"
-                    class="profile-input profile-textarea"
+                    class="ped-input ped-textarea"
                     rows="2"
                     maxlength="60"
-                    placeholder="座右铭"
+                    placeholder="写点什么介绍一下自己吧"
                   ></textarea>
-                  <div class="profile-actions">
-                    <button class="profile-btn ghost" @click="cancelEditProfile">取消</button>
-                    <button class="profile-btn" @click="saveProfile">保存</button>
-                  </div>
-                </template>
+                </label>
+              </div>
+              <div class="ped-foot">
+                <button class="ped-btn ghost" @click="cancelEditProfile">取消</button>
+                <button class="ped-btn" @click="saveProfile">保存</button>
               </div>
             </div>
-          </transition>
+          </NModal>
 
           <!-- 关闭窗口询问：应用内自定义弹窗，替代系统原生 MessageBox -->
           <transition name="close-pop">
@@ -941,19 +950,6 @@ body.rail-resizing {
   justify-content: center;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
 }
-.profile-avatar.editable {
-  cursor: pointer;
-}
-.profile-avatar-mask {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
-  color: #fff;
-  font-size: 12px;
-}
 .profile-avatar img {
   width: 100%;
   height: 100%;
@@ -975,33 +971,128 @@ body.rail-resizing {
   color: var(--text);
   word-break: break-word;
 }
-.profile-input {
+/* 编辑资料弹窗 */
+.profile-edit-dlg {
+  width: 380px;
+  max-width: 92vw;
+  background: var(--surface, #fff);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--fluent-shadow, 0 18px 50px rgba(0, 0, 0, 0.22));
+  display: flex;
+  flex-direction: column;
+}
+.ped-head {
+  display: flex;
+  align-items: center;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--fluent-stroke, rgba(17, 17, 17, 0.08));
+}
+.ped-title {
+  flex: 1;
+  font-size: 15.5px;
+  font-weight: 700;
+  color: var(--text-strong, #1f2329);
+}
+.ped-close {
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  color: var(--text-dim, #8a909c);
+  cursor: pointer;
+  padding: 5px 9px;
+  border-radius: 7px;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.ped-close:hover {
+  background: rgba(17, 17, 17, 0.06);
+  color: var(--text-strong, #1f2329);
+}
+.ped-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 20px;
+}
+.ped-avatar {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: none;
+  padding: 0;
+  background: var(--rail-avatar-bg);
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+}
+.ped-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ped-avatar > span {
+  font-size: 34px;
+  font-weight: 600;
+  color: var(--rail-avatar-fallback);
+}
+.ped-avatar-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.42);
+  color: #fff;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.ped-avatar:hover .ped-avatar-mask {
+  opacity: 1;
+}
+.ped-field {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ped-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim, #8a909c);
+}
+.ped-input {
   width: 100%;
   box-sizing: border-box;
-  padding: 7px 10px;
-  font-size: 13px;
+  padding: 8px 11px;
+  font-size: 13.5px;
   font-family: inherit;
   color: var(--text-strong, #1f2329);
-  background: rgba(255, 255, 255, 0.75);
+  background: var(--surface, #fff);
   border: 1px solid rgba(17, 17, 17, 0.16);
   border-radius: 8px;
   outline: none;
   resize: none;
+  transition: border-color 0.14s ease;
 }
-.profile-input:focus {
-  border-color: var(--accent-ink, #1f2329);
+.ped-input:focus {
+  border-color: var(--accent, #2563eb);
 }
-.profile-textarea {
+.ped-textarea {
   line-height: 1.5;
 }
-.profile-actions {
+.ped-foot {
   display: flex;
-  gap: 8px;
-  width: 100%;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 13px 20px 16px;
+  border-top: 1px solid var(--fluent-stroke, rgba(17, 17, 17, 0.08));
 }
-.profile-btn {
-  flex: 1;
-  padding: 7px 0;
+.ped-btn {
+  min-width: 76px;
+  padding: 8px 18px;
   font-size: 13px;
   font-family: inherit;
   border-radius: 8px;
@@ -1011,15 +1102,15 @@ body.rail-resizing {
   color: var(--on-accent, #fff);
   transition: filter 0.15s ease;
 }
-.profile-btn:hover {
-  filter: brightness(1.12);
+.ped-btn:hover {
+  filter: brightness(1.1);
 }
-.profile-btn.ghost {
+.ped-btn.ghost {
   background: transparent;
   color: var(--accent-ink, #1f2329);
   border-color: rgba(17, 17, 17, 0.2);
 }
-.profile-btn.ghost:hover {
+.ped-btn.ghost:hover {
   background: rgba(17, 17, 17, 0.06);
   filter: none;
 }

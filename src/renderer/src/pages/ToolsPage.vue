@@ -1,7 +1,12 @@
 <script setup lang="ts">
 // 「探索 - 功能」：在主窗口内直接发起 OCR / 截屏 / 取色，结果在本页展示。
 import { computed, onMounted, ref } from 'vue'
+import { NModal } from 'naive-ui'
 import type { OcrLine, PickedColor } from '@shared/types'
+
+function closeResult(): void {
+  resultKind.value = ''
+}
 
 const busy = ref<'' | 'ocr' | 'shot' | 'color' | 'reader'>('')
 const resultKind = ref<'' | 'ocr' | 'color'>('')
@@ -10,7 +15,40 @@ const errorMsg = ref('')
 const picked = ref<PickedColor | null>(null)
 const cloudReady = ref(false)
 const toast = ref('')
+const savingNote = ref(false)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+// ─── 取色历史调色板（prefs 持久化） ───
+const COLOR_HISTORY_KEY = 'colorPickerHistory'
+const COLOR_HISTORY_MAX = 24
+const colorHistory = ref<PickedColor[]>([])
+
+async function loadColorHistory(): Promise<void> {
+  try {
+    const list = await window.mook.prefs.get<PickedColor[]>(COLOR_HISTORY_KEY, [])
+    colorHistory.value = Array.isArray(list) ? list : []
+  } catch {
+    colorHistory.value = []
+  }
+}
+// IPC 结构化克隆无法传递 Vue reactive Proxy，写入前转成普通对象数组
+function plainHistory(): PickedColor[] {
+  return colorHistory.value.map((x) => ({ r: x.r, g: x.g, b: x.b, hex: x.hex }))
+}
+async function pushColorHistory(c: PickedColor): Promise<void> {
+  const rest = colorHistory.value.filter((x) => x.hex.toLowerCase() !== c.hex.toLowerCase())
+  colorHistory.value = [c, ...rest].slice(0, COLOR_HISTORY_MAX)
+  void window.mook.prefs.set(COLOR_HISTORY_KEY, plainHistory())
+}
+async function removeColor(c: PickedColor, e: MouseEvent): Promise<void> {
+  e.stopPropagation()
+  colorHistory.value = colorHistory.value.filter((x) => x.hex !== c.hex)
+  await window.mook.prefs.set(COLOR_HISTORY_KEY, plainHistory())
+}
+async function clearColors(): Promise<void> {
+  colorHistory.value = []
+  await window.mook.prefs.set(COLOR_HISTORY_KEY, [])
+}
 
 // 发起各工具时是否先隐藏主窗口（避免把应用自身拍进冻结画面）
 const hideOcr = ref(true)
@@ -71,8 +109,10 @@ async function startColor(): Promise<void> {
   try {
     const res = await window.mook.color.capture()
     if (!res.canceled && res.color) {
+      // 先显示结果，再写历史；历史持久化失败不应阻断结果卡片
       picked.value = res.color
       resultKind.value = 'color'
+      await pushColorHistory(res.color).catch(() => {})
     }
   } finally {
     busy.value = ''
@@ -92,6 +132,39 @@ async function openReader(): Promise<void> {
 async function copyText(text: string): Promise<void> {
   const { ok } = await window.mook.ocr.copyText(text)
   showToast(ok ? '复制成功' : '复制失败')
+}
+
+// OCR 识别结果一键转存为笔记
+async function saveAsNote(): Promise<void> {
+  const text = resultText.value
+  if (!text.trim() || savingNote.value) return
+  savingNote.value = true
+  try {
+    const now = new Date()
+    const pad = (n: number): string => String(n).padStart(2, '0')
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(
+      now.getHours()
+    )}:${pad(now.getMinutes())}`
+    await window.mook.note.create({
+      id: await window.mook.note.newId(),
+      title: `OCR 识别 ${stamp}`,
+      content: text,
+      contentType: 'markdown',
+      tags: ['OCR'],
+      images: [],
+      isPinned: false
+    })
+    showToast('已转存为笔记')
+  } catch (e) {
+    showToast('转存失败：' + String(e))
+  } finally {
+    savingNote.value = false
+  }
+}
+
+function useHistoryColor(c: PickedColor): void {
+  picked.value = c
+  resultKind.value = 'color'
 }
 
 const colorRgb = computed(() => {
@@ -124,6 +197,7 @@ onMounted(async () => {
   await bindHide('hideMainOnOcr', hideOcr)
   await bindHide('hideMainOnShot', hideShot)
   await bindHide('hideMainOnColor', hideColor)
+  await loadColorHistory()
   try {
     const cfg = await window.mook.ocr.cloudConfig()
     cloudReady.value = !!cfg.configured
@@ -174,6 +248,7 @@ onMounted(async () => {
             <span class="track"></span>
           </span>
         </label>
+        <div v-if="!cloudReady" class="tc-warn">当前 OCR 配置暂不可用，请重新尝试</div>
       </div>
 
       <div class="tool-card" :class="{ disabled: !!busy }">
@@ -223,49 +298,93 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div v-if="!cloudReady" class="hint">当前OCR配置暂不可用，请重新尝试</div>
-
-    <!-- OCR 结果 -->
-    <div v-if="resultKind === 'ocr'" class="result">
-      <div class="r-head">
-        <span class="r-title">OCR 识别结果</span>
-        <button class="r-close" @click="resultKind = ''">✕</button>
-      </div>
-      <div class="r-body">
-        <div v-if="errorMsg" class="r-error">{{ errorMsg }}</div>
-        <div v-else-if="!lines.length" class="r-empty">选区内没有识别到文字</div>
-        <textarea v-else class="r-text" readonly :value="resultText"
-          @focus="($event.target as HTMLTextAreaElement).select()"></textarea>
-      </div>
-      <div class="r-foot">
-        <button class="btn" :disabled="!lines.length" @click="copyText(resultText)">复制全部</button>
-      </div>
-    </div>
-
-    <!-- 取色结果 -->
-    <div v-else-if="resultKind === 'color' && picked" class="result">
-      <div class="r-head">
-        <span class="r-title">取色结果</span>
-        <button class="r-close" @click="resultKind = ''">✕</button>
-      </div>
-      <div class="color-body">
-        <div class="swatch" :style="{ background: picked.hex }"></div>
-        <div class="color-rows">
-          <button class="color-row" @click="copyText(picked.hex)">
-            <span class="cr-label">HEX</span>
-            <span class="cr-val">{{ picked.hex }}</span>
+    <!-- OCR 结果弹窗 -->
+    <NModal
+      :show="resultKind === 'ocr'"
+      :auto-focus="false"
+      @update:show="(v: boolean) => { if (!v) closeResult() }"
+    >
+      <div class="dlg dlg-ocr">
+        <div class="dlg-head">
+          <span class="dlg-ic">文</span>
+          <span class="dlg-title">OCR 识别结果</span>
+          <button class="dlg-close" @click="closeResult">✕</button>
+        </div>
+        <div class="dlg-body">
+          <div v-if="errorMsg" class="r-error">{{ errorMsg }}</div>
+          <div v-else-if="!lines.length" class="r-empty">选区内没有识别到文字</div>
+          <textarea v-else class="r-text" readonly :value="resultText"
+            @focus="($event.target as HTMLTextAreaElement).select()"></textarea>
+        </div>
+        <div class="dlg-foot">
+          <button
+            class="btn btn-ghost"
+            :disabled="!lines.length || savingNote"
+            @click="saveAsNote"
+          >
+            {{ savingNote ? '保存中…' : '转存为笔记' }}
           </button>
-          <button class="color-row" @click="copyText(colorRgb)">
-            <span class="cr-label">RGB</span>
-            <span class="cr-val">{{ colorRgb }}</span>
-          </button>
-          <button class="color-row" @click="copyText(colorHsl)">
-            <span class="cr-label">HSL</span>
-            <span class="cr-val">{{ colorHsl }}</span>
-          </button>
+          <button class="btn" :disabled="!lines.length" @click="copyText(resultText)">复制全部</button>
         </div>
       </div>
-    </div>
+    </NModal>
+
+    <!-- 取色结果弹窗 -->
+    <NModal
+      :show="resultKind === 'color' && !!picked"
+      :auto-focus="false"
+      @update:show="(v: boolean) => { if (!v) closeResult() }"
+    >
+      <div v-if="picked" class="dlg dlg-color">
+        <div class="dlg-head">
+          <span class="dlg-ic dlg-ic-dot" :style="{ background: picked.hex }"></span>
+          <span class="dlg-title">取色结果</span>
+          <button class="dlg-close" @click="closeResult">✕</button>
+        </div>
+        <div class="dlg-body">
+          <div class="color-body">
+            <div class="swatch" :style="{ background: picked.hex }"></div>
+            <div class="color-rows">
+              <button class="color-row" @click="copyText(picked.hex)">
+                <span class="cr-label">HEX</span>
+                <span class="cr-val">{{ picked.hex }}</span>
+              </button>
+              <button class="color-row" @click="copyText(colorRgb)">
+                <span class="cr-label">RGB</span>
+                <span class="cr-val">{{ colorRgb }}</span>
+              </button>
+              <button class="color-row" @click="copyText(colorHsl)">
+                <span class="cr-label">HSL</span>
+                <span class="cr-val">{{ colorHsl }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 历史调色板 -->
+          <div v-if="colorHistory.length" class="palette">
+            <div class="pal-head">
+              <span class="pal-title">调色板 · {{ colorHistory.length }}</span>
+              <button class="pal-clear" @click="clearColors">清空</button>
+            </div>
+            <div class="pal-grid">
+              <button
+                v-for="c in colorHistory"
+                :key="c.hex"
+                type="button"
+                class="pal-cell"
+                :class="{ on: picked && picked.hex === c.hex }"
+                :title="`${c.hex} · 点击查看并复制`"
+                @click="useHistoryColor(c); copyText(c.hex)"
+              >
+                <span class="pal-swatch" :style="{ background: c.hex }"></span>
+                <span class="pal-hex">{{ c.hex }}</span>
+                <span class="pal-del" title="移除" @click.stop="removeColor(c, $event)">✕</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </NModal>
 
     <Transition name="toast">
       <div v-if="toast" class="toast">{{ toast }}</div>
@@ -356,6 +475,14 @@ onMounted(async () => {
   color: var(--text-dim, #6b7280);
   cursor: pointer;
 }
+.tc-warn {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--fluent-stroke, rgba(17, 17, 17, 0.06));
+  font-size: 12px;
+  line-height: 1.45;
+  color: #b06a00;
+}
 .switch {
   position: relative;
   display: inline-flex;
@@ -414,53 +541,72 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.hint {
-  margin-top: 14px;
-  font-size: 12.5px;
-  color: #b06a00;
-}
-.result {
-  margin-top: 22px;
-  max-width: 760px;
+/* 结果弹窗 */
+.dlg {
   display: flex;
   flex-direction: column;
-  border-radius: 14px;
   background: var(--surface, #fff);
-  border: 1px solid rgba(17, 17, 17, 0.1);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
   overflow: hidden;
+  box-shadow: var(--fluent-shadow, 0 18px 50px rgba(0, 0, 0, 0.22));
 }
-.r-head {
+.dlg-ocr {
+  width: 620px;
+  max-width: 92vw;
+}
+.dlg-color {
+  width: 460px;
+  max-width: 92vw;
+}
+.dlg-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 14px 18px;
-  border-bottom: 1px solid rgba(17, 17, 17, 0.08);
+  gap: 10px;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--fluent-stroke, rgba(17, 17, 17, 0.08));
 }
-.r-title {
-  font-size: 15px;
-  font-weight: 600;
+.dlg-ic {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-strong, #1f2329);
+  background: var(--rail-item-hover, rgba(17, 17, 17, 0.06));
 }
-.r-close {
+.dlg-ic-dot {
+  border: 1px solid rgba(17, 17, 17, 0.14);
+}
+.dlg-title {
+  flex: 1;
+  font-size: 15.5px;
+  font-weight: 700;
+  color: var(--text-strong, #1f2329);
+}
+.dlg-close {
   border: none;
   background: transparent;
   font-size: 14px;
-  color: #8a909c;
+  color: var(--text-dim, #8a909c);
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  transition: background 0.14s ease, color 0.14s ease;
 }
-.r-close:hover {
+.dlg-close:hover {
   background: rgba(17, 17, 17, 0.06);
-  color: #1f2329;
+  color: var(--text-strong, #1f2329);
 }
-.r-body {
-  padding: 14px 18px;
-  min-height: 180px;
+.dlg-body {
+  padding: 18px 20px;
 }
 .r-text {
   width: 100%;
-  height: 220px;
+  height: 300px;
   box-sizing: border-box;
   border: 1px solid rgba(17, 17, 17, 0.14);
   border-radius: 10px;
@@ -477,7 +623,7 @@ onMounted(async () => {
 }
 .r-empty,
 .r-error {
-  height: 180px;
+  height: 220px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -487,22 +633,125 @@ onMounted(async () => {
 .r-error {
   color: #d12f2f;
 }
-.r-foot {
+.dlg-foot {
   display: flex;
   justify-content: flex-end;
-  padding: 12px 18px;
-  border-top: 1px solid rgba(17, 17, 17, 0.08);
+  gap: 10px;
+  padding: 13px 20px 16px;
+  border-top: 1px solid var(--fluent-stroke, rgba(17, 17, 17, 0.08));
+}
+.btn.btn-ghost {
+  background: transparent;
+  color: var(--text-strong, #1f2329);
+  border: 1px solid rgba(17, 17, 17, 0.16);
+}
+.btn.btn-ghost:hover:not(:disabled) {
+  background: rgba(17, 17, 17, 0.06);
+  color: var(--text-strong, #1f2329);
+  border-color: rgba(17, 17, 17, 0.24);
+}
+
+/* 历史调色板 */
+.palette {
+  margin-top: 16px;
+  border-top: 1px solid var(--fluent-stroke, rgba(17, 17, 17, 0.08));
+  padding-top: 14px;
+}
+.pal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.pal-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim, #8a909c);
+}
+.pal-clear {
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-dim, #8a909c);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+.pal-clear:hover {
+  color: #d12f2f;
+  background: rgba(209, 47, 47, 0.08);
+}
+.pal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+.pal-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+.pal-cell:hover {
+  border-color: color-mix(in srgb, var(--accent-ink) 45%, transparent);
+  background: rgba(17, 17, 17, 0.03);
+}
+.pal-cell.on {
+  border-color: var(--accent-ink, #1f2329);
+  box-shadow: 0 0 0 1px var(--accent-ink, #1f2329);
+}
+.pal-swatch {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  border: 1px solid rgba(17, 17, 17, 0.14);
+}
+.pal-hex {
+  font-size: 11.5px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  color: var(--text, #555);
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pal-del {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 9px;
+  line-height: 1;
+}
+.pal-cell:hover .pal-del {
+  display: flex;
+}
+.pal-del:hover {
+  background: #d12f2f;
 }
 .color-body {
   display: flex;
   gap: 16px;
-  padding: 18px;
 }
 .swatch {
-  flex: 0 0 110px;
-  height: 110px;
+  flex: 0 0 104px;
+  height: 104px;
   border-radius: 12px;
   border: 1px solid rgba(17, 17, 17, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
 }
 .color-rows {
   flex: 1;
