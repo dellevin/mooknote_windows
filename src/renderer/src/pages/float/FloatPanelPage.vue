@@ -212,7 +212,7 @@ onBeforeUnmount(() => {
         </svg>
         <span>{{ picking ? '正在取色…' : '取色' }}</span>
       </button>
-      <div v-if="ocrMenuEnabled && !cloudReady" class="menu-hint">云端 OCR 未配置，截屏的「提取文字」不可用</div>
+      <div v-if="ocrMenuEnabled && !cloudReady" class="menu-hint">当前OCR配置暂不可用，请重新尝试</div>
     </div>
 
     <!-- 取色结果 -->

@@ -7,8 +7,7 @@ import {
   NEmpty,
   NSpin,
   NTag,
-  NRate,
-  useDialog
+  NRate
 } from 'naive-ui'
 import type { CustomModuleDesign, CustomModuleItem } from '@shared/types'
 import { toImgUrl, formatDate } from '@/utils/image'
@@ -19,7 +18,6 @@ import ItemDetailModal from '@/components/custom/ItemDetailModal.vue'
 import ItemBinModal from '@/components/custom/ItemBinModal.vue'
 
 const route = useRoute()
-const dialog = useDialog()
 
 const moduleId = computed<string | null>(
   () => (route.name === 'custom-module' ? String(route.params.id) : null)
@@ -96,18 +94,11 @@ async function onSaved(): Promise<void> {
   if (!moduleId.value) return
   items.value = await window.mook.customItem.list(moduleId.value)
 }
-function askDelete(it: CustomModuleItem): void {
-  dialog.warning({
-    title: '删除条目',
-    content: `确定将「${it.title || '无标题条目'}」移入回收站吗？`,
-    positiveText: '删除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
-      await window.mook.customItem.softDelete(it.id)
-      detailShow.value = false
-      await onSaved()
-    }
-  })
+async function askDelete(it: CustomModuleItem): Promise<void> {
+  // 详情弹窗内已有 NPopconfirm 二次确认，这里直接执行删除
+  await window.mook.customItem.softDelete(it.id)
+  detailShow.value = false
+  await onSaved()
 }
 </script>
 
@@ -189,6 +180,7 @@ function askDelete(it: CustomModuleItem): void {
         v-if="design"
         v-model:show="formShow"
         :module-id="moduleId"
+        :module-icon="moduleMeta?.icon"
         :item="editing"
         @saved="onSaved"
       />
@@ -196,6 +188,7 @@ function askDelete(it: CustomModuleItem): void {
         v-model:show="detailShow"
         :design="design"
         :item="detailItem"
+        :module-icon="moduleMeta?.icon"
         @edit="openEdit"
         @delete="askDelete"
       />

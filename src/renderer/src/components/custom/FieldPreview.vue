@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { faCalendar, faClock } from '@fortawesome/free-solid-svg-icons'
 import type { CustomFieldDef } from '@shared/types'
 import ModuleIcon from './ModuleIcon.vue'
+import FaGlyph from './FaGlyph.vue'
 
 defineProps<{ field: CustomFieldDef }>()
 </script>
@@ -59,10 +61,16 @@ defineProps<{ field: CustomFieldDef }>()
     </div>
 
     <!-- 日期 -->
-    <div v-else-if="field.type === 'date'" class="fp-input fp-with-ic">选择日期</div>
+    <div v-else-if="field.type === 'date'" class="fp-input fp-with-ic">
+      <span>选择日期</span>
+      <FaGlyph :def="faCalendar" :size="14" class="fp-tail-ic" />
+    </div>
 
     <!-- 时长 -->
-    <div v-else-if="field.type === 'duration'" class="fp-input fp-with-ic">时长（分钟）</div>
+    <div v-else-if="field.type === 'duration'" class="fp-input fp-with-ic">
+      <span>时长（分钟）</span>
+      <FaGlyph :def="faClock" :size="14" class="fp-tail-ic" />
+    </div>
 
     <!-- 进度 -->
     <div v-else-if="field.type === 'progress'" class="fp-progress">
@@ -125,11 +133,13 @@ defineProps<{ field: CustomFieldDef }>()
   border: 1px solid #eef0f4;
   border-radius: 9px;
 }
-.fp-with-ic::after {
-  content: '📅';
+.fp-with-ic {
+  justify-content: space-between;
+}
+.fp-tail-ic {
   margin-left: auto;
-  font-size: 13px;
-  opacity: 0.5;
+  color: var(--text-dim);
+  opacity: 0.8;
 }
 .fp-textarea {
   display: flex;

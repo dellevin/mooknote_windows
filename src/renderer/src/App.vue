@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 import { toImgUrl } from '@/utils/image'
 import { applyFont, currentFontStack } from '@/utils/theme'
 import { currentSkin, initSkin } from '@/utils/skin'
+import { loadSidebarNav, visibleNavItems } from '@/utils/sidebarNav'
 import type { CustomModule } from '@shared/types'
 import ModuleIcon from '@/components/custom/ModuleIcon.vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
@@ -161,52 +162,68 @@ function onModulesChanged(): void {
   void loadCustomModules()
 }
 
+// 内置入口的图标/配色（id 为路由路径），顺序与显隐由设置页「侧边栏显示」控制
+const NAV_META: Record<string, { icon: string; accent?: string }> = {
+  '/': { icon: I.home },
+  '/movies': { icon: I.film, accent: '#3b5bff' },
+  '/books': { icon: I.book, accent: '#16a34a' },
+  '/games': { icon: I.game, accent: '#ea580c' },
+  '/notes': { icon: I.note, accent: '#0891b2' },
+  '/playlists': { icon: I.list },
+  '/calendar': { icon: I.calendar },
+  '/tags': { icon: I.tag },
+  '/people': { icon: I.users },
+  '/gallery': { icon: I.image },
+  '/custom': { icon: I.grid },
+  '/tools': { icon: I.tools },
+  '/bin': { icon: I.trash }
+}
+
 // 三组分区，对齐手机端「我的」页的功能归类
-const navGroups = computed<NavGroup[]>(() => [
-  {
-    title: '内容',
-    items: [
-      { label: '首页', to: '/', icon: I.home },
-      { label: '影视', to: '/movies', icon: I.film, accent: '#3b5bff' },
-      { label: '阅读', to: '/books', icon: I.book, accent: '#16a34a' },
-      { label: '游戏', to: '/games', icon: I.game, accent: '#ea580c' },
-      { label: '笔记', to: '/notes', icon: I.note, accent: '#0891b2' },
-      // 用户自定义的各分类直接进入对应条目页
-      ...customModules.value
-        .filter((m) => m.isEnabled)
-        .map<NavItem>((m) => ({
-          label: m.name,
-          to: `/custom/${m.id}`,
-          icon: '',
-          accent: '#7c3aed',
-          raw: true,
-          moduleIcon: m.icon
-        }))
-    ]
-  },
-  {
-    title: '探索',
-    items: [
-      { label: '片单', to: '/playlists', icon: I.list },
-      { label: '日历', to: '/calendar', icon: I.calendar },
-      { label: '标签', to: '/tags', icon: I.tag },
-      { label: '人物', to: '/people', icon: I.users },
-      { label: '图库', to: '/gallery', icon: I.image },
-      { label: '自定义', to: '/custom', icon: I.grid },
-      { label: '工具栏', to: '/tools', icon: I.tools },
-      { label: '回收站', to: '/bin', icon: I.trash }
-    ]
-  },
-  {
-    title: '',
-    items: [
-      ...(readerRunning.value
-        ? [{ label: '阅读器', to: '/reader-running', icon: I.book, accent: '#16a34a', runningReader: true }]
-        : []),
-      { label: '设置', to: '/settings', icon: I.gear }
-    ]
-  }
-])
+const navGroups = computed<NavGroup[]>(() =>
+  [
+    {
+      title: '内容',
+      items: [
+        ...visibleNavItems('content').map<NavItem>((it) => ({
+          label: it.label,
+          to: it.id,
+          icon: NAV_META[it.id]?.icon ?? I.grid,
+          accent: NAV_META[it.id]?.accent
+        })),
+        // 用户自定义的各分类直接进入对应条目页
+        ...customModules.value
+          .filter((m) => m.isEnabled)
+          .map<NavItem>((m) => ({
+            label: m.name,
+            to: `/custom/${m.id}`,
+            icon: '',
+            accent: '#7c3aed',
+            raw: true,
+            moduleIcon: m.icon
+          }))
+      ]
+    },
+    {
+      title: '探索',
+      items: visibleNavItems('explore').map<NavItem>((it) => ({
+        label: it.label,
+        to: it.id,
+        icon: NAV_META[it.id]?.icon ?? I.grid,
+        accent: NAV_META[it.id]?.accent
+      }))
+    },
+    {
+      title: '',
+      items: [
+        ...(readerRunning.value
+          ? [{ label: '阅读器', to: '/reader-running', icon: I.book, accent: '#16a34a', runningReader: true }]
+          : []),
+        { label: '设置', to: '/settings', icon: I.gear }
+      ]
+    }
+  ].filter((g) => g.items.length > 0)
+)
 
 // 进入/离开自定义页面后刷新侧边栏，保证新建/删除分类及时同步
 const route = useRoute()
@@ -298,6 +315,7 @@ function cancelClose(): void {
 
 onMounted(async () => {
   await loadCustomModules()
+  await loadSidebarNav()
   const p = await window.mook.prefs.all()
   nickname.value = (p.nickname as string) || 'MookNote'
   motto.value = (p.motto as string) || ''

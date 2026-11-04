@@ -75,7 +75,7 @@ function extraCount(d: CustomModuleDesign): number {
 </script>
 
 <template>
-  <div class="design-list">
+  <div class="design-list" :class="{ designing: designerShow }">
     <template v-if="!designerShow">
       <div class="toolbar">
         <div class="tb-left">
@@ -172,6 +172,12 @@ function extraCount(d: CustomModuleDesign): number {
 <style scoped>
 .design-list {
   display: block;
+}
+.design-list.designing {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .toolbar {
   display: flex;

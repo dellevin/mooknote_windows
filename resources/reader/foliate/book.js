@@ -891,7 +891,7 @@ const getCSS = ({ fontSize,
         ${backgroundImageCSS}
         background-color: transparent !important;
         ${useBookStyles ? '' : `letter-spacing: ${letterSpacing}px;`}
-        ${useBookStyles ? '' : `font-size: ${fontSize}em;`}
+        font-size: ${fontSize}em;
         orphans: 1;  
         widows: 1;
     }
@@ -981,9 +981,14 @@ const getCSS = ({ fontSize,
     }
     `}
 
+    /* 行距是阅读设置中始终暴露的控件，无论是否采用原书样式都应生效 */
+    h1, h2, h3, h4, h5, h6 {
+        line-height: ${spacing} !important;
+    }
+
     p, li, blockquote, dd, div:not(:has(*:not(b, a, em, i, strong, u, span))), font {
         color: ${fontColor} !important;
-        ${useBookStyles ? '' : `line-height: ${spacing} !important;`}
+        line-height: ${spacing} !important;
         ${useBookStyles ? '' : `font-weight: ${fontWeight} !important;`}
         ${useBookStyles ? '' : `text-align: ${textAlign === 'auto' ? (justify ? 'justify' : 'start') : textAlign};`}
         ${useBookStyles || textIndent < 0 ? '' : 'text-indent: ' + textIndent + 'em !important;'}

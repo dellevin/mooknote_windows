@@ -27,6 +27,14 @@ import {
   fontPreviewStack
 } from '@/utils/theme'
 import { SKINS, currentSkin, applySkin } from '@/utils/skin'
+import {
+  SIDEBAR_GROUPS,
+  editableNavItems,
+  isNavHidden,
+  setNavHidden,
+  moveNavItem,
+  resetSidebarNav
+} from '@/utils/sidebarNav'
 import { renderMarkdown } from '@/utils/markdown'
 
 interface AppInfo {
@@ -989,6 +997,43 @@ async function onCloseActionPick(v: 'ask' | 'tray' | 'quit'): Promise<void> {
   message.success('已保存')
 }
 
+// 侧边栏显示与排序：组内原生 HTML5 拖拽
+const dragPayload = ref<{ groupId: string; id: string } | null>(null)
+const dragOver = ref<{ groupId: string; id: string } | null>(null)
+
+function onNavDragStart(e: DragEvent, groupId: string, id: string): void {
+  dragPayload.value = { groupId, id }
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', id)
+  }
+}
+function onNavDragOver(groupId: string, id: string): void {
+  if (!dragPayload.value || dragPayload.value.groupId !== groupId) return
+  dragOver.value = { groupId, id }
+}
+function onNavDragLeave(groupId: string, id: string): void {
+  if (dragOver.value?.groupId === groupId && dragOver.value?.id === id) {
+    dragOver.value = null
+  }
+}
+function onNavDrop(groupId: string, id: string): void {
+  const p = dragPayload.value
+  if (p && p.groupId === groupId && p.id !== id) {
+    moveNavItem(groupId, p.id, id)
+  }
+  dragPayload.value = null
+  dragOver.value = null
+}
+function onNavDragEnd(): void {
+  dragPayload.value = null
+  dragOver.value = null
+}
+function onResetSidebarNav(): void {
+  resetSidebarNav()
+  message.success('已恢复默认')
+}
+
 const uiFont = ref('system')
 // 预览区跟随鼠标悬停的卡片，移出后回到当前选中字体
 const previewFont = ref('system')
@@ -1141,6 +1186,53 @@ onMounted(async () => {
                 <NRadio value="quit">退出程序</NRadio>
               </NSpace>
             </NRadioGroup>
+          </div>
+
+          <div class="form-row sidebar-nav-row">
+            <label class="lbl">侧边栏显示</label>
+            <div class="sidebar-nav-stage">
+              <p class="hint sidebar-nav-hint">
+                拖动条目可调整侧边栏排序，关闭开关可隐藏对应功能，设置后立即生效。
+              </p>
+              <div class="sidebar-nav-groups">
+                <div v-for="g in SIDEBAR_GROUPS" :key="g.id" class="sidebar-nav-group">
+                <div class="sidebar-nav-group-title">{{ g.title }}</div>
+                <div
+                  v-for="it in editableNavItems(g.id)"
+                  :key="it.id"
+                  class="sidebar-nav-item"
+                  :class="{
+                    dragging: dragPayload?.groupId === g.id && dragPayload?.id === it.id,
+                    'drag-over': dragOver?.groupId === g.id && dragOver?.id === it.id
+                  }"
+                  draggable="true"
+                  @dragstart="onNavDragStart($event, g.id, it.id)"
+                  @dragover.prevent="onNavDragOver(g.id, it.id)"
+                  @dragleave="onNavDragLeave(g.id, it.id)"
+                  @drop.prevent="onNavDrop(g.id, it.id)"
+                  @dragend="onNavDragEnd"
+                >
+                  <span class="sidebar-nav-handle" title="拖动排序">
+                    <svg viewBox="0 0 24 24" width="14" height="14">
+                      <circle cx="9" cy="6" r="1" fill="currentColor" />
+                      <circle cx="15" cy="6" r="1" fill="currentColor" />
+                      <circle cx="9" cy="12" r="1" fill="currentColor" />
+                      <circle cx="15" cy="12" r="1" fill="currentColor" />
+                      <circle cx="9" cy="18" r="1" fill="currentColor" />
+                      <circle cx="15" cy="18" r="1" fill="currentColor" />
+                    </svg>
+                  </span>
+                  <span class="sidebar-nav-label">{{ it.label }}</span>
+                  <NSwitch
+                    :value="!isNavHidden(it.id)"
+                    size="small"
+                    @update:value="(v) => setNavHidden(it.id, !v)"
+                  />
+                </div>
+                </div>
+              </div>
+              <NButton size="tiny" quaternary @click="onResetSidebarNav">恢复默认排序与显示</NButton>
+            </div>
           </div>
         </NCard>
       </div>
@@ -2207,6 +2299,60 @@ onMounted(async () => {
 }
 .ctrl {
   flex: 1;
+}
+.sidebar-nav-row {
+  align-items: flex-start;
+}
+.sidebar-nav-stage {
+  flex: 1;
+}
+.sidebar-nav-hint {
+  margin-bottom: 8px;
+}
+.sidebar-nav-groups {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.sidebar-nav-group {
+  min-width: 0;
+}
+.sidebar-nav-group-title {
+  font-size: 12px;
+  color: #8a909c;
+  margin: 6px 0 4px;
+}
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.02);
+  cursor: grab;
+  transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
+}
+.sidebar-nav-item:hover {
+  border-color: rgba(59, 91, 255, 0.4);
+}
+.sidebar-nav-item.dragging {
+  opacity: 0.4;
+}
+.sidebar-nav-item.drag-over {
+  border-color: #3b5bff;
+  box-shadow: 0 0 0 1px #3b5bff inset;
+}
+.sidebar-nav-handle {
+  display: inline-flex;
+  color: #b0b6c0;
+}
+.sidebar-nav-label {
+  flex: 1;
+  font-size: 13px;
+  color: #3c414a;
 }
 .icon-row {
   align-items: flex-start;

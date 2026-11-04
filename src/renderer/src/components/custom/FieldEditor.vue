@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import {
   NInput,
   NInputNumber,
@@ -8,7 +8,7 @@ import {
   NDatePicker,
   NButton,
   NImage,
-  NSpace
+  NSpin
 } from 'naive-ui'
 import type { CustomFieldDef, CustomFieldValue } from '@shared/types'
 import { toImgUrl } from '@/utils/image'
@@ -82,13 +82,28 @@ const poster = computed<string | null>({
   set: (v) => set(v)
 })
 
+const posterLoading = ref(false)
+const imagesLoading = ref(false)
+
 async function pickPoster(): Promise<void> {
-  const p = await window.mook.customItem.pickPoster(props.moduleId, props.itemId)
-  if (p) poster.value = p
+  if (posterLoading.value) return
+  posterLoading.value = true
+  try {
+    const p = await window.mook.customItem.pickPoster(props.moduleId, props.itemId)
+    if (p) poster.value = p
+  } finally {
+    posterLoading.value = false
+  }
 }
 async function pickImages(): Promise<void> {
-  const paths = await window.mook.customItem.pickImages(props.moduleId, props.itemId)
-  images.value = [...images.value, ...paths]
+  if (imagesLoading.value) return
+  imagesLoading.value = true
+  try {
+    const paths = await window.mook.customItem.pickImages(props.moduleId, props.itemId)
+    images.value = [...images.value, ...paths]
+  } finally {
+    imagesLoading.value = false
+  }
 }
 </script>
 
@@ -132,17 +147,17 @@ async function pickImages(): Promise<void> {
       v-model:value="numVal"
       :min="0"
       show-button
-      class="num"
+      class="grow num"
     />
     <NDatePicker
       v-else-if="field.type === 'date'"
       v-model:value="dateTs"
       type="date"
       clearable
-      class="date"
+      class="grow date"
     />
     <div v-else-if="field.type === 'duration'" class="dur">
-      <NInputNumber v-model:value="numVal" :min="0" show-button class="num" />
+      <NInputNumber v-model:value="numVal" :min="0" show-button class="grow num" />
       <span class="unit">分钟</span>
     </div>
     <div v-else-if="field.type === 'progress'" class="progress">
@@ -150,7 +165,7 @@ async function pickImages(): Promise<void> {
         :value="progress.current"
         :min="0"
         placeholder="当前"
-        class="num"
+        class="grow num"
         @update:value="(v: number | null) => (progress = { ...progress, current: v ?? 0 })"
       />
       <span class="sep">/</span>
@@ -158,7 +173,7 @@ async function pickImages(): Promise<void> {
         :value="progress.total"
         :min="0"
         placeholder="总量"
-        class="num"
+        class="grow num"
         @update:value="(v: number | null) => (progress = { ...progress, total: v ?? 0 })"
       />
     </div>
@@ -167,25 +182,64 @@ async function pickImages(): Promise<void> {
       v-model:value="rangeTs"
       type="daterange"
       clearable
-      class="range"
+      class="grow range"
     />
     <div v-else-if="field.type === 'poster'" class="poster">
-      <NImage v-if="poster" :src="toImgUrl(poster)" object-fit="cover" class="thumb" />
-      <NButton size="small" @click="pickPoster">{{ poster ? '更换封面' : '选择封面' }}</NButton>
+      <button
+        type="button"
+        class="poster-drop"
+        :class="{ loading: posterLoading }"
+        :disabled="posterLoading"
+        @click="pickPoster"
+      >
+        <img v-if="poster" :src="toImgUrl(poster)" class="poster-img" alt="封面" />
+        <NSpin v-else-if="posterLoading" size="small" />
+        <template v-else-if="!poster">
+          <span class="poster-plus">＋</span>
+          <span class="poster-tx">点击上传封面</span>
+          <span class="poster-sub">建议比例 3:4</span>
+        </template>
+        <div v-if="posterLoading && poster" class="poster-mask"><NSpin size="small" /></div>
+      </button>
+      <div v-if="poster" class="poster-actions">
+        <NButton size="tiny" :loading="posterLoading" @click="pickPoster">更换</NButton>
+        <NButton
+          size="tiny"
+          quaternary
+          type="error"
+          :disabled="posterLoading"
+          @click="poster = null"
+        >
+          移除
+        </NButton>
+      </div>
     </div>
     <div v-else-if="field.type === 'multiImage'" class="multi-img">
-      <NSpace :size="6">
-        <div v-for="(img, i) in images" :key="img" class="img-cell">
-          <NImage :src="toImgUrl(img)" object-fit="cover" class="thumb" />
-          <button class="img-del" @click="images.splice(i, 1)">✕</button>
-        </div>
-        <NButton size="small" @click="pickImages">＋ 图片</NButton>
-      </NSpace>
+      <div v-for="(img, i) in images" :key="img" class="img-cell">
+        <NImage :src="toImgUrl(img)" object-fit="contain" class="thumb" />
+        <button class="img-del" @click="images.splice(i, 1)">✕</button>
+      </div>
+      <button
+        type="button"
+        class="img-add"
+        :class="{ loading: imagesLoading }"
+        :disabled="imagesLoading"
+        @click="pickImages"
+      >
+        <NSpin v-if="imagesLoading" size="small" />
+        <template v-else>
+          <span class="img-plus">＋</span>
+          <span class="img-add-tx">图片</span>
+        </template>
+      </button>
     </div>
   </div>
 </template>
 
 <style scoped>
+.field-editor {
+  width: 100%;
+}
 .status-chips {
   display: flex;
   flex-wrap: wrap;
@@ -214,46 +268,130 @@ async function pickImages(): Promise<void> {
   border-color: var(--accent-ink);
   font-weight: 500;
 }
+/* 控件填满所在格子 */
+.grow {
+  width: 100%;
+}
 .num {
-  width: 160px;
-}
-.date {
-  width: 200px;
-}
-.range {
-  width: 320px;
+  min-width: 0;
 }
 .dur {
   display: flex;
   align-items: center;
   gap: 8px;
 }
+.dur .unit {
+  flex-shrink: 0;
+}
 .unit {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--text-dim);
 }
 .progress {
   display: flex;
   align-items: center;
   gap: 6px;
 }
-.sep {
-  color: #9aa0ac;
+.progress .num {
+  flex: 1;
 }
+.sep {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+/* 封面：竖版海报占位 */
 .poster {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
 }
-.thumb {
-  width: 72px;
-  height: 72px;
+.poster-drop {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  height: auto;
+  flex-shrink: 0;
+  border: 1.5px dashed var(--stroke-strong);
   border-radius: 8px;
+  background: var(--app-bg);
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  transition:
+    border-color var(--d1) var(--fluent-ease),
+    background-color var(--d1) var(--fluent-ease);
+}
+.poster-drop:hover:not(:disabled) {
+  border-color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+.poster-drop:disabled {
+  cursor: wait;
+}
+.poster-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.62);
+  border-radius: 6px;
+}
+.poster-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.poster-plus {
+  font-size: 26px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+.poster-tx {
+  font-size: 12.5px;
+  color: var(--text);
+}
+.poster-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.poster-actions {
+  display: flex;
+  gap: 6px;
+}
+.poster-actions :deep(.n-button) {
+  flex: 1;
+}
+
+/* 多图：方形网格 */
+.multi-img {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
 }
 .img-cell {
   position: relative;
-  width: 72px;
-  height: 72px;
+  flex-shrink: 0;
+  line-height: 0;
+}
+.img-cell :deep(.thumb),
+.img-cell :deep(.thumb img) {
+  height: 96px;
+  width: auto;
+  max-width: 190px;
+  min-width: 72px;
+  border-radius: 6px;
+  display: block;
 }
 .img-del {
   position: absolute;
@@ -263,9 +401,47 @@ async function pickImages(): Promise<void> {
   height: 18px;
   border-radius: 50%;
   border: none;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.62);
   color: #fff;
   font-size: 10px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.img-del:hover {
+  background: #e04f5f;
+}
+.img-add {
+  width: 76px;
+  height: 76px;
+  border: 1.5px dashed var(--stroke-strong);
+  border-radius: 6px;
+  background: var(--app-bg);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  transition:
+    border-color var(--d1) var(--fluent-ease),
+    background-color var(--d1) var(--fluent-ease);
+}
+.img-add:hover:not(:disabled) {
+  border-color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+.img-add:disabled {
+  cursor: wait;
+}
+.img-plus {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+.img-add-tx {
+  font-size: 11px;
+  color: var(--text-dim);
 }
 </style>

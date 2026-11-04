@@ -1,15 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import {
-  NButton,
-  NSpace,
-  NInput,
-  NModal,
-  NSwitch,
-  NDynamicTags,
-  NEmpty,
-  useMessage
-} from 'naive-ui'
+import { NButton, NInput, NSwitch, NEmpty, useMessage } from 'naive-ui'
 import {
   faImage,
   faFlag,
@@ -52,24 +43,6 @@ const fields = ref<CustomFieldDef[]>([])
 const isNew = ref(true)
 const saving = ref(false)
 
-watch(
-  () => [props.moduleId, props.design] as const,
-  async ([, design]) => {
-    if (design) {
-      isNew.value = false
-      id.value = design.id
-      name.value = design.name
-      fields.value = design.fields.map((f) => ({ ...f, options: [...f.options] }))
-    } else {
-      isNew.value = true
-      id.value = await window.mook.customDesign.newId()
-      name.value = ''
-      fields.value = []
-    }
-  },
-  { immediate: true }
-)
-
 // ─── 字段类型元信息 ───
 const SINGLETON: CustomFieldType[] = ['poster', 'status', 'rating', 'count']
 const TEXT_TYPES: CustomFieldType[] = ['text', 'multiText', 'longText']
@@ -96,13 +69,23 @@ const TYPE_METAS: TypeMeta[] = [
   { type: 'rating', label: '评分', desc: '星级评分', icon: faStar, defLabel: '评分' },
   { type: 'count', label: '次数', desc: '次数统计（加减号控制）', icon: faHashtag, defLabel: '次数' },
   { type: 'text', label: '单行文本', desc: '一行短文本（如 名称）', icon: faFont, defLabel: '名称' },
-  { type: 'multiText', label: '多行标签', desc: '多个文本条目（如 导演、编剧）', icon: faListUl, defLabel: '' },
+  { type: 'multiText', label: '多行标签', desc: '多个文本条目（如 导演、编剧）', icon: faListUl, defLabel: '标签' },
   { type: 'date', label: '日期', desc: '选择一个日期', icon: faCalendar, defLabel: '时间' },
   { type: 'longText', label: '长文本', desc: '多行长文本（如 简介）', icon: faAlignLeft, defLabel: '简介' },
   { type: 'duration', label: '时长', desc: '以分钟记录时长（如 影视总时长）', icon: faClock, defLabel: '时长' },
   { type: 'progress', label: '进度', desc: '当前/总量进度（如 看到 12/24 集）', icon: faHourglassHalf, defLabel: '进度' },
   { type: 'dateRange', label: '日期区间', desc: '开始 ~ 结束日期', icon: faCalendarDays, defLabel: '起止日期' },
   { type: 'multiImage', label: '多图', desc: '导入多张图片', icon: faImages, defLabel: '多图' }
+]
+interface PaletteGroup {
+  title: string
+  types: CustomFieldType[]
+}
+const PALETTE: PaletteGroup[] = [
+  { title: '基础字段', types: ['poster', 'status', 'rating', 'count'] },
+  { title: '文本字段', types: ['text', 'multiText', 'longText'] },
+  { title: '时间与进度', types: ['date', 'duration', 'progress', 'dateRange'] },
+  { title: '媒体', types: ['multiImage'] }
 ]
 const metaOf = (t: CustomFieldType): TypeMeta =>
   TYPE_METAS.find((m) => m.type === t) ?? TYPE_METAS[0]
@@ -111,89 +94,88 @@ const pairable = (f: CustomFieldDef): boolean => f.halfWidth && halfCapable(f.ty
 const singletonUsed = (t: CustomFieldType): boolean =>
   SINGLETON.includes(t) && fields.value.some((f) => f.type === t)
 
-// ─── 添加字段：类型选择 ───
-const pickerShow = ref(false)
-function openPicker(): void {
-  pickerShow.value = true
-}
-function chooseType(t: CustomFieldType): void {
-  if (singletonUsed(t)) return
-  pickerShow.value = false
+watch(
+  () => [props.moduleId, props.design] as const,
+  async ([, design]) => {
+    if (design) {
+      isNew.value = false
+      id.value = design.id
+      name.value = design.name
+      fields.value = design.fields.map((f) => ({
+        ...f,
+        label: f.label.trim() || metaOf(f.type).defLabel || metaOf(f.type).label,
+        options: [...f.options]
+      }))
+    } else {
+      isNew.value = true
+      id.value = await window.mook.customDesign.newId()
+      name.value = ''
+      fields.value = []
+    }
+    selectedKey.value = null
+  },
+  { immediate: true }
+)
+
+// ─── 创建字段 ───
+function createField(t: CustomFieldType): CustomFieldDef {
   const meta = metaOf(t)
-  beginConfig(
-    {
-      key: 'f_' + crypto.randomUUID().replace(/-/g, '').slice(0, 8),
-      type: t,
-      label: meta.defLabel,
-      required: false,
-      options: t === 'status' ? ['想看', '在看', '看过'] : [],
-      isTitle: false,
-      halfWidth: false,
-      halfOnLeft: true,
-      icon: ''
-    },
-    true
-  )
+  return {
+    key: 'f_' + crypto.randomUUID().replace(/-/g, '').slice(0, 8),
+    type: t,
+    label: meta.defLabel,
+    required: false,
+    options: t === 'status' ? ['想看', '在看', '看过'] : [],
+    isTitle: false,
+    halfWidth: false,
+    halfOnLeft: true,
+    icon: ''
+  }
+}
+function appendField(t: CustomFieldType, select = true): void {
+  if (singletonUsed(t)) return
+  const f = createField(t)
+  fields.value.push(f)
+  if (select) selectedKey.value = f.key
 }
 
-// ─── 字段配置 ───
-const cfgShow = ref(false)
-const cfgIsNew = ref(false)
-const cfg = ref<CustomFieldDef | null>(null)
+// ─── 选中 / 属性面板（直接编辑） ───
+const selectedKey = ref<string | null>(null)
+const sel = computed<CustomFieldDef | null>(
+  () => fields.value.find((f) => f.key === selectedKey.value) ?? null
+)
+function selectField(f: CustomFieldDef): void {
+  selectedKey.value = f.key
+}
+watch(fields, (list: CustomFieldDef[]) => {
+  if (selectedKey.value && !list.some((f) => f.key === selectedKey.value)) {
+    selectedKey.value = null
+  }
+})
+function toggleTitle(on: boolean): void {
+  if (!sel.value) return
+  sel.value.isTitle = on
+  if (on) for (const f of fields.value) if (f.key !== sel.value!.key) f.isTitle = false
+}
+function deleteSelected(): void {
+  const k = selectedKey.value
+  if (!k) return
+  fields.value = fields.value.filter((f) => f.key !== k)
+  selectedKey.value = null
+}
 const optionInput = ref('')
-function beginConfig(f: CustomFieldDef, isNewField: boolean): void {
-  cfg.value = { ...f, options: [...f.options] }
-  cfgIsNew.value = isNewField
-  optionInput.value = ''
-  cfgShow.value = true
-}
-function editField(f: CustomFieldDef): void {
-  beginConfig(f, false)
-}
 function addOption(): void {
   const v = optionInput.value.trim()
-  if (!v || !cfg.value || cfg.value.options.includes(v)) return
-  cfg.value.options.push(v)
+  if (!v || !sel.value || sel.value.options.includes(v)) return
+  sel.value.options.push(v)
   optionInput.value = ''
 }
 function removeOption(o: string): void {
-  if (!cfg.value) return
-  cfg.value.options = cfg.value.options.filter((x) => x !== o)
-}
-function toggleTitle(on: boolean): void {
-  if (!cfg.value) return
-  cfg.value.isTitle = on
-}
-function saveConfig(): void {
-  const c = cfg.value
-  if (!c) return
-  if (!c.label.trim()) {
-    message.warning('请输入字段名称')
-    return
-  }
-  if (c.type === 'status' && c.options.length === 0) {
-    message.warning('请至少添加一个状态选项')
-    return
-  }
-  if (cfgIsNew.value) {
-    fields.value.push(c)
-  } else {
-    const idx = fields.value.findIndex((f) => f.key === c.key)
-    if (idx !== -1) fields.value[idx] = c
-  }
-  if (c.isTitle) {
-    for (const f of fields.value) if (f.key !== c.key) f.isTitle = false
-  }
-  cfgShow.value = false
-}
-function deleteConfigField(): void {
-  const c = cfg.value
-  if (!c) return
-  fields.value = fields.value.filter((f) => f.key !== c.key)
-  cfgShow.value = false
+  if (!sel.value) return
+  sel.value.options = sel.value.options.filter((x) => x !== o)
 }
 
-// ─── 半行分组（与手机端一致：相邻两个半行字段并排） ───
+// ─── 半行分组（相邻两个半行字段并排） ───
 type Row = CustomFieldDef[]
 const rows = computed<Row[]>(() => {
   const out: Row[] = []
@@ -224,11 +206,13 @@ const starts = computed<number[]>(() => {
   return s
 })
 
-// ─── 拖拽排序 ───
+// ─── 拖拽排序（画布内 / 字段库拖入） ───
 const dragKey = ref<string | null>(null)
+const paletteType = ref<CustomFieldType | null>(null)
 const gapOver = ref<number | null>(null)
 const fieldOver = ref<string | null>(null)
 const slotOver = ref<string | null>(null)
+const dragging = computed<boolean>(() => !!(dragKey.value || paletteType.value))
 
 function onDragStart(e: DragEvent, f: CustomFieldDef): void {
   dragKey.value = f.key
@@ -237,29 +221,68 @@ function onDragStart(e: DragEvent, f: CustomFieldDef): void {
     e.dataTransfer.setData('text/plain', f.key)
   }
 }
+function onPaletteDragStart(e: DragEvent, t: CustomFieldType): void {
+  if (singletonUsed(t)) {
+    e.preventDefault()
+    return
+  }
+  paletteType.value = t
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'copy'
+    e.dataTransfer.setData('text/plain', 'palette:' + t)
+  }
+}
 function onDragEnd(): void {
   dragKey.value = null
+  paletteType.value = null
   gapOver.value = null
   fieldOver.value = null
   slotOver.value = null
 }
-function dragged(): CustomFieldDef | undefined {
+function draggedField(): CustomFieldDef | undefined {
   return fields.value.find((f) => f.key === dragKey.value)
 }
+function applyInsert(list: CustomFieldDef[], index: number, moved: CustomFieldDef): void {
+  list.splice(Math.min(index, list.length), 0, moved)
+}
 function dropGap(index: number): void {
-  const d = dragged()
+  // 字段库拖入
+  if (paletteType.value) {
+    const list = [...fields.value]
+    applyInsert(list, index, createField(paletteType.value))
+    fields.value = list
+    onDragEnd()
+    return
+  }
+  const d = draggedField()
   if (!d) return
   const list = fields.value.filter((f) => f.key !== d.key)
   let idx = index
   const from = fields.value.findIndex((f) => f.key === d.key)
   if (from < idx) idx--
-  const moved: CustomFieldDef = { ...d, halfWidth: false }
-  list.splice(Math.min(idx, list.length), 0, moved)
+  applyInsert(list, idx, { ...d, halfWidth: false })
   fields.value = list
   onDragEnd()
 }
 function dropField(target: CustomFieldDef): void {
-  const d = dragged()
+  // 字段库拖入
+  if (paletteType.value) {
+    const t = paletteType.value
+    const list = [...fields.value]
+    const idx = list.findIndex((f) => f.key === target.key)
+    if (idx === -1) return
+    const nf = createField(t)
+    if (halfCapable(t) && halfCapable(target.type)) {
+      nf.halfWidth = true
+      if (!target.halfWidth) list[idx] = { ...target, halfWidth: true }
+    }
+    list.splice(idx, 0, nf)
+    fields.value = list
+    selectedKey.value = nf.key
+    onDragEnd()
+    return
+  }
+  const d = draggedField()
   if (!d || d.key === target.key) return
   const list = fields.value.filter((f) => f.key !== d.key)
   const idx = list.findIndex((f) => f.key === target.key)
@@ -276,7 +299,25 @@ function dropField(target: CustomFieldDef): void {
   onDragEnd()
 }
 function dropSlot(target: CustomFieldDef): void {
-  const d = dragged()
+  // 字段库拖入半行空位
+  if (paletteType.value) {
+    const t = paletteType.value
+    if (!halfCapable(t)) {
+      onDragEnd()
+      return
+    }
+    const list = [...fields.value]
+    const idx = list.findIndex((f) => f.key === target.key)
+    if (idx === -1) return
+    const nf = { ...createField(t), halfWidth: true }
+    if (!target.halfWidth) list[idx] = { ...target, halfWidth: true }
+    list.splice(target.halfOnLeft ? idx + 1 : idx, 0, nf)
+    fields.value = list
+    selectedKey.value = nf.key
+    onDragEnd()
+    return
+  }
+  const d = draggedField()
   if (!d || d.key === target.key) return
   const list = fields.value.filter((f) => f.key !== d.key)
   const idx = list.findIndex((f) => f.key === target.key)
@@ -290,14 +331,18 @@ function toggleSide(f: CustomFieldDef): void {
   if (idx !== -1) fields.value[idx] = { ...f, halfOnLeft: !f.halfOnLeft }
 }
 function onSlotOver(f: CustomFieldDef): void {
-  const d = dragged()
+  if (paletteType.value) {
+    if (halfCapable(paletteType.value)) slotOver.value = f.key
+    return
+  }
+  const d = draggedField()
   if (d && d.key !== f.key && halfCapable(d.type)) slotOver.value = f.key
 }
 function gapDragOver(index: number): void {
-  if (dragKey.value) gapOver.value = index
+  if (dragging.value) gapOver.value = index
 }
 function fieldDragOver(f: CustomFieldDef): void {
-  if (dragKey.value && dragKey.value !== f.key) fieldOver.value = f.key
+  if (dragging.value && dragKey.value !== f.key) fieldOver.value = f.key
 }
 
 // ─── 保存 ───
@@ -311,12 +356,11 @@ async function save(): Promise<void> {
     message.warning('请至少添加一个字段')
     return
   }
+  // 空名称字段自动补上该类型的默认名称
   for (const f of fields.value) {
-    if (!f.label.trim()) {
-      message.warning('请填写每个字段的字段名')
-      return
-    }
+    if (!f.label.trim()) f.label = metaOf(f.type).defLabel || metaOf(f.type).label
     if (f.type === 'status' && !f.options.length) {
+      selectedKey.value = f.key
       message.warning(`「${f.label}」至少需要一个状态选项`)
       return
     }
@@ -348,242 +392,316 @@ async function save(): Promise<void> {
 
 <template>
   <div class="designer">
-    <!-- 顶部栏 -->
-    <div class="topbar">
-      <button type="button" class="back" @click="emit('cancel')">
+    <!-- 顶部命令栏 -->
+    <header class="cmdbar">
+      <button type="button" class="cmd-back" @click="emit('cancel')">
         <span class="back-ic">‹</span>
-        <span class="back-tx">返回</span>
+        <span>返回</span>
       </button>
+      <div class="cmd-divider" />
+      <span class="cmd-title">表单设计</span>
       <NInput
         v-model:value="name"
         placeholder="设计名称（如：默认设计）"
         size="small"
         class="name-input"
       />
-      <NSpace :size="8" :wrap="false">
-        <NButton size="small" @click="openPicker">＋ 添加字段</NButton>
-        <NButton size="small" type="primary" :loading="saving" @click="save">保存</NButton>
-      </NSpace>
-    </div>
-    <p class="hint">拖动字段卡片调整顺序；拖到另一字段上可并排为半行，拖到行间缝隙则独占一行。点击卡片编辑字段。</p>
-
-    <!-- 预览区（手机宽度居中） -->
-    <div class="canvas">
-      <NEmpty v-if="!fields.length" description="还没有字段" class="empty">
-        <template #extra>
-          <NButton size="small" type="primary" @click="openPicker">＋ 添加第一个字段</NButton>
-        </template>
-      </NEmpty>
-
-      <template v-else>
-        <template v-for="(row, ri) in rows" :key="starts[ri]">
-          <!-- 行前缝隙 -->
-          <div
-            class="gap"
-            :class="{ on: gapOver === starts[ri] }"
-            @dragover.prevent="gapDragOver(starts[ri])"
-            @dragleave="gapOver = null"
-            @drop.prevent="dropGap(starts[ri])"
-          />
-          <div class="row" :class="{ pair: row.length === 2 }">
-            <template v-for="f in row" :key="f.key">
-              <!-- 单个半行字段：卡片 + 虚框占位（点击占位切换左右） -->
-              <template v-if="row.length === 1 && pairable(f)">
-                <template v-if="f.halfOnLeft">
-                  <div
-                    class="field-card"
-                    :class="{ dragging: dragKey === f.key, over: fieldOver === f.key }"
-                    draggable="true"
-                    @dragstart="onDragStart($event, f)"
-                    @dragend="onDragEnd"
-                    @dragover.prevent="fieldDragOver(f)"
-                    @dragleave="fieldOver = null"
-                    @drop.prevent="dropField(f)"
-                    @click="editField(f)"
-                  >
-                    <FieldPreview :field="f" />
-                  </div>
-                  <div
-                    class="half-slot"
-                    :class="{ on: slotOver === f.key }"
-                    @dragover.prevent="onSlotOver(f)"
-                    @dragleave="slotOver = null"
-                    @drop.prevent="dropSlot(f)"
-                    @click="toggleSide(f)"
-                  >
-                    ＋
-                  </div>
-                </template>
-                <template v-else>
-                  <div
-                    class="half-slot"
-                    :class="{ on: slotOver === f.key }"
-                    @dragover.prevent="onSlotOver(f)"
-                    @dragleave="slotOver = null"
-                    @drop.prevent="dropSlot(f)"
-                    @click="toggleSide(f)"
-                  >
-                    ＋
-                  </div>
-                  <div
-                    class="field-card"
-                    :class="{ dragging: dragKey === f.key, over: fieldOver === f.key }"
-                    draggable="true"
-                    @dragstart="onDragStart($event, f)"
-                    @dragend="onDragEnd"
-                    @dragover.prevent="fieldDragOver(f)"
-                    @dragleave="fieldOver = null"
-                    @drop.prevent="dropField(f)"
-                    @click="editField(f)"
-                  >
-                    <FieldPreview :field="f" />
-                  </div>
-                </template>
-              </template>
-
-              <!-- 普通字段（整行或成对半行） -->
-              <div
-                v-else
-                class="field-card"
-                :class="{ dragging: dragKey === f.key, over: fieldOver === f.key }"
-                draggable="true"
-                @dragstart="onDragStart($event, f)"
-                @dragend="onDragEnd"
-                @dragover.prevent="fieldDragOver(f)"
-                @dragleave="fieldOver = null"
-                @drop.prevent="dropField(f)"
-                @click="editField(f)"
-              >
-                <FieldPreview :field="f" />
-              </div>
-            </template>
-          </div>
-        </template>
-        <!-- 末尾缝隙 -->
-        <div
-          class="gap"
-          :class="{ on: gapOver === fields.length }"
-          @dragover.prevent="gapDragOver(fields.length)"
-          @dragleave="gapOver = null"
-          @drop.prevent="dropGap(fields.length)"
-        />
-        <button type="button" class="add-btn" @click="openPicker">＋ 添加字段</button>
-      </template>
-    </div>
-
-    <!-- 类型选择弹窗 -->
-    <NModal v-model:show="pickerShow" :auto-focus="false">
-      <div class="picker">
-        <h3>添加字段</h3>
-        <div class="type-grid">
-          <button
-            v-for="m in TYPE_METAS"
-            :key="m.type"
-            type="button"
-            class="type-card"
-            :disabled="singletonUsed(m.type)"
-            @click="chooseType(m.type)"
-          >
-            <div class="type-head">
-              <FaGlyph :def="m.icon" :size="17" class="type-ic" />
-              <span class="type-name">{{ m.label }}</span>
-            </div>
-            <div class="type-desc">{{ singletonUsed(m.type) ? '已添加（该类型仅可添加一个）' : m.desc }}</div>
-          </button>
-        </div>
+      <span class="field-count">{{ fields.length }} 个字段</span>
+      <div class="cmd-right">
+        <NButton size="small" @click="emit('cancel')">取消</NButton>
+        <NButton size="small" type="primary" :loading="saving" @click="save">保存设计</NButton>
       </div>
-    </NModal>
+    </header>
 
-    <!-- 字段配置弹窗 -->
-    <NModal v-model:show="cfgShow" :auto-focus="false">
-      <div v-if="cfg" class="cfg">
-        <h3>{{ cfgIsNew ? '添加' : '编辑' }}{{ metaOf(cfg.type).label }}</h3>
-
-        <div class="cfg-row">
-          <span class="cfg-cap">字段名称</span>
-          <NInput v-model:value="cfg.label" maxlength="10" show-count placeholder="字段名称" />
+    <div class="body">
+      <!-- 左：字段库 -->
+      <aside class="pane palette">
+        <div class="pane-head">
+          <span class="pane-title">字段库</span>
+          <span class="pane-sub">点击或拖入画布</span>
         </div>
-
-        <div v-if="cfg.type === 'text'" class="cfg-row switch-row">
-          <div class="switch-text">
-            <span class="cfg-cap">设为标题</span>
-            <span class="switch-sub">列表页以此字段作为条目标题</span>
-          </div>
-          <NSwitch :value="cfg.isTitle" @update:value="toggleTitle" />
-        </div>
-
-        <div v-if="TEXT_TYPES.includes(cfg.type)" class="cfg-row switch-row">
-          <span class="cfg-cap">必填</span>
-          <NSwitch v-model:value="cfg.required" />
-        </div>
-
-        <div v-if="halfCapable(cfg.type)" class="cfg-row switch-row">
-          <div class="switch-text">
-            <span class="cfg-cap">半行显示</span>
-            <span class="switch-sub">与相邻的半行字段并排为一行</span>
-          </div>
-          <NSwitch v-model:value="cfg.halfWidth" />
-        </div>
-
-        <div v-if="cfg.type !== 'poster'" class="cfg-icon-block">
-          <span class="cfg-cap">图标</span>
-          <div class="icon-grid">
+        <div class="pane-scroll">
+          <div v-for="g in PALETTE" :key="g.title" class="pal-group">
+            <div class="pal-group-tx">{{ g.title }}</div>
             <button
-              v-for="d in CUSTOM_MODULE_ICONS"
-              :key="iconValue(d)"
+              v-for="t in g.types"
+              :key="t"
               type="button"
-              class="icon-cell"
-              :class="{ on: cfg.icon === iconValue(d) }"
-              @click="cfg.icon = cfg.icon === iconValue(d) ? '' : iconValue(d)"
+              class="pal-item"
+              :disabled="singletonUsed(t)"
+              :title="metaOf(t).desc"
+              draggable="true"
+              @dragstart="onPaletteDragStart($event, t)"
+              @dragend="onDragEnd"
+              @click="appendField(t)"
             >
-              <ModuleIcon :icon="iconValue(d)" :size="15" />
+              <span class="pal-ic"><FaGlyph :def="metaOf(t).icon" :size="14" /></span>
+              <span class="pal-meta">
+                <span class="pal-name">{{ metaOf(t).label }}</span>
+                <span class="pal-desc">{{
+                  singletonUsed(t) ? '已添加（仅可一个）' : metaOf(t).desc
+                }}</span>
+              </span>
             </button>
           </div>
         </div>
+      </aside>
 
-        <div v-if="cfg.type === 'status'" class="cfg-opt-block">
-          <span class="cfg-cap">状态选项</span>
-          <div class="opt-chips">
-            <span v-for="o in cfg.options" :key="o" class="opt-chip">
-              {{ o }}
-              <button type="button" class="opt-x" @click="removeOption(o)">✕</button>
-            </span>
+      <!-- 中：画布 -->
+      <main class="canvas-wrap">
+        <div class="canvas-scroll">
+          <!-- 空状态 -->
+          <div v-if="!fields.length" class="drop-empty">
+            <div class="empty-card">
+              <NEmpty description="从左侧字段库拖入字段，开始设计表单">
+                <template #extra>
+                  <span class="empty-tip">支持拖动调整顺序 · 两个半行字段可并排</span>
+                </template>
+              </NEmpty>
+            </div>
           </div>
-          <div class="opt-add">
-            <NInput
-              v-model:value="optionInput"
-              size="small"
-              maxlength="8"
-              placeholder="新选项名称"
-              @keydown.enter.prevent="addOption"
+
+          <!-- 表单纸 -->
+          <div v-else class="sheet">
+            <div class="sheet-head">
+              <span class="sheet-title">{{ name || '未命名设计' }}</span>
+              <span class="sheet-sub">表单预览 · 点击字段可在右侧编辑</span>
+            </div>
+
+            <template v-for="(row, ri) in rows" :key="starts[ri]">
+              <!-- 行前缝隙 -->
+              <div
+                class="gap"
+                :class="{ on: gapOver === starts[ri] }"
+                @dragover.prevent="gapDragOver(starts[ri])"
+                @dragleave="gapOver = null"
+                @drop.prevent="dropGap(starts[ri])"
+              />
+              <div class="row" :class="{ pair: row.length === 2 }">
+                <template v-for="f in row" :key="f.key">
+                  <!-- 单个半行字段：卡片 + 虚框占位（点击占位切换左右） -->
+                  <template v-if="row.length === 1 && pairable(f)">
+                    <template v-if="f.halfOnLeft">
+                      <div
+                        class="field-card"
+                        :class="{
+                          dragging: dragKey === f.key,
+                          over: fieldOver === f.key,
+                          selected: selectedKey === f.key
+                        }"
+                        draggable="true"
+                        @dragstart="onDragStart($event, f)"
+                        @dragend="onDragEnd"
+                        @dragover.prevent="fieldDragOver(f)"
+                        @dragleave="fieldOver = null"
+                        @drop.prevent="dropField(f)"
+                        @click="selectField(f)"
+                      >
+                        <span class="drag-handle">⠿</span>
+                        <FieldPreview :field="f" />
+                      </div>
+                      <div
+                        class="half-slot"
+                        :class="{ on: slotOver === f.key }"
+                        @dragover.prevent="onSlotOver(f)"
+                        @dragleave="slotOver = null"
+                        @drop.prevent="dropSlot(f)"
+                        @click="toggleSide(f)"
+                        title="点击切换字段靠右侧；可拖入字段并排"
+                      >
+                        ＋
+                      </div>
+                    </template>
+                    <template v-else>
+                      <div
+                        class="half-slot"
+                        :class="{ on: slotOver === f.key }"
+                        @dragover.prevent="onSlotOver(f)"
+                        @dragleave="slotOver = null"
+                        @drop.prevent="dropSlot(f)"
+                        @click="toggleSide(f)"
+                        title="点击切换字段靠左侧；可拖入字段并排"
+                      >
+                        ＋
+                      </div>
+                      <div
+                        class="field-card"
+                        :class="{
+                          dragging: dragKey === f.key,
+                          over: fieldOver === f.key,
+                          selected: selectedKey === f.key
+                        }"
+                        draggable="true"
+                        @dragstart="onDragStart($event, f)"
+                        @dragend="onDragEnd"
+                        @dragover.prevent="fieldDragOver(f)"
+                        @dragleave="fieldOver = null"
+                        @drop.prevent="dropField(f)"
+                        @click="selectField(f)"
+                      >
+                        <span class="drag-handle">⠿</span>
+                        <FieldPreview :field="f" />
+                      </div>
+                    </template>
+                  </template>
+
+                  <!-- 普通字段（整行或成对半行） -->
+                  <div
+                    v-else
+                    class="field-card"
+                    :class="{
+                      dragging: dragKey === f.key,
+                      over: fieldOver === f.key,
+                      selected: selectedKey === f.key
+                    }"
+                    draggable="true"
+                    @dragstart="onDragStart($event, f)"
+                    @dragend="onDragEnd"
+                    @dragover.prevent="fieldDragOver(f)"
+                    @dragleave="fieldOver = null"
+                    @drop.prevent="dropField(f)"
+                    @click="selectField(f)"
+                  >
+                    <span class="drag-handle">⠿</span>
+                    <FieldPreview :field="f" />
+                  </div>
+                </template>
+              </div>
+            </template>
+            <!-- 末尾缝隙 -->
+            <div
+              class="gap"
+              :class="{ on: gapOver === fields.length }"
+              @dragover.prevent="gapDragOver(fields.length)"
+              @dragleave="gapOver = null"
+              @drop.prevent="dropGap(fields.length)"
             />
-            <NButton size="small" @click="addOption">添加</NButton>
           </div>
         </div>
+      </main>
 
-        <div class="cfg-footer">
-          <NButton v-if="!cfgIsNew" type="error" ghost @click="deleteConfigField">删除字段</NButton>
-          <div class="cfg-footer-right">
-            <NButton @click="cfgShow = false">取消</NButton>
-            <NButton type="primary" @click="saveConfig">{{ cfgIsNew ? '添加' : '保存' }}</NButton>
+      <!-- 右：属性 -->
+      <aside class="pane props">
+        <template v-if="sel">
+          <div class="pane-head">
+            <span class="pane-title">字段属性</span>
+            <span class="pane-tag">{{ metaOf(sel.type).label }}</span>
           </div>
+          <div class="pane-scroll">
+            <div class="prop-sec">
+              <label class="prop-lab">字段名称</label>
+              <NInput v-model:value="sel.label" maxlength="10" show-count placeholder="字段名称" />
+            </div>
+
+            <div v-if="sel.type === 'text'" class="prop-row">
+              <div class="prop-text">
+                <span class="prop-lab">设为标题</span>
+                <span class="prop-sub">列表页以此字段作为条目标题</span>
+              </div>
+              <NSwitch :value="sel.isTitle" @update:value="toggleTitle" />
+            </div>
+
+            <div v-if="TEXT_TYPES.includes(sel.type)" class="prop-row">
+              <div class="prop-text">
+                <span class="prop-lab">必填</span>
+                <span class="prop-sub">新建条目时必须填写</span>
+              </div>
+              <NSwitch v-model:value="sel.required" />
+            </div>
+
+            <div v-if="halfCapable(sel.type)" class="prop-row">
+              <div class="prop-text">
+                <span class="prop-lab">半行显示</span>
+                <span class="prop-sub">与相邻的半行字段并排为一行</span>
+              </div>
+              <NSwitch v-model:value="sel.halfWidth" />
+            </div>
+
+            <div v-if="sel.type === 'status'" class="prop-sec">
+              <label class="prop-lab">状态选项</label>
+              <div class="opt-chips">
+                <span v-for="o in sel.options" :key="o" class="opt-chip">
+                  {{ o }}
+                  <button type="button" class="opt-x" @click="removeOption(o)">✕</button>
+                </span>
+              </div>
+              <div class="opt-add">
+                <NInput
+                  v-model:value="optionInput"
+                  size="small"
+                  maxlength="8"
+                  placeholder="新选项名称"
+                  @keydown.enter.prevent="addOption"
+                />
+                <NButton size="small" @click="addOption">添加</NButton>
+              </div>
+            </div>
+
+            <div v-if="sel.type !== 'poster'" class="prop-sec">
+              <label class="prop-lab">字段图标</label>
+              <div class="icon-grid">
+                <button
+                  v-for="d in CUSTOM_MODULE_ICONS"
+                  :key="iconValue(d)"
+                  type="button"
+                  class="icon-cell"
+                  :class="{ on: sel.icon === iconValue(d) }"
+                  @click="sel.icon = sel.icon === iconValue(d) ? '' : iconValue(d)"
+                >
+                  <ModuleIcon :icon="iconValue(d)" :size="14" />
+                </button>
+              </div>
+            </div>
+
+            <div class="prop-delete">
+              <NButton size="small" type="error" ghost block @click="deleteSelected">
+                删除该字段
+              </NButton>
+            </div>
+          </div>
+        </template>
+
+        <div v-else class="pane-head">
+          <span class="pane-title">字段属性</span>
         </div>
-      </div>
-    </NModal>
+        <div v-if="!sel" class="props-empty">
+          <p>在画布中点击任一字段，即可在此编辑名称、必填、半行显示、图标等属性。</p>
+          <ul>
+            <li>拖动字段卡片调整排列顺序</li>
+            <li>拖到另一字段上可并排为半行</li>
+            <li>拖到行缝隙则独占一行</li>
+            <li>也可直接从左侧字段库拖入</li>
+          </ul>
+        </div>
+      </aside>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .designer {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  border: 1px solid var(--fluent-stroke);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
 }
-.topbar {
+
+/* ─── 顶部命令栏 ─── */
+.cmdbar {
+  height: 52px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--fluent-stroke);
+  background: var(--surface);
 }
-.back {
+.cmd-back {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -591,107 +709,310 @@ async function save(): Promise<void> {
   height: 30px;
   padding: 0 12px 0 8px;
   font-size: 13px;
-  color: #4b5563;
-  background: var(--surface);
-  border: 1px solid #e6e8ee;
-  border-radius: 999px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--fluent-stroke);
+  border-radius: 5px;
   cursor: pointer;
   transition:
-    border-color var(--d1) var(--fluent-ease),
-    color var(--d1) var(--fluent-ease),
     background-color var(--d1) var(--fluent-ease),
-    box-shadow var(--d1) var(--fluent-ease);
+    border-color var(--d1) var(--fluent-ease),
+    color var(--d1) var(--fluent-ease);
 }
-.back:hover {
-  border-color: color-mix(in srgb, var(--accent-ink) 45%, var(--surface));
-  color: var(--accent-ink);
-  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
-  box-shadow: 0 2px 8px rgba(31, 35, 41, 0.06);
+.cmd-back:hover {
+  color: var(--text-strong);
+  background: var(--tb-btn-hover-bg);
+  border-color: var(--stroke-strong);
 }
 .back-ic {
-  font-size: 19px;
+  font-size: 18px;
   line-height: 1;
   font-weight: 500;
   margin-top: -1px;
 }
+.cmd-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--fluent-stroke);
+}
+.cmd-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-strong);
+  flex-shrink: 0;
+}
 .name-input {
-  flex: 1;
-  max-width: 320px;
+  width: 240px;
+  flex-shrink: 0;
 }
-.hint {
+.field-count {
   font-size: 12px;
-  color: #a8adba;
-  margin: 8px 0 4px;
+  color: var(--text-dim);
+  flex-shrink: 0;
 }
-.canvas {
+.cmd-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ─── 三栏主体 ─── */
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.pane {
+  width: 232px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+.palette {
+  border-right: 1px solid var(--fluent-stroke);
+}
+.props {
+  width: 272px;
+  border-left: 1px solid var(--fluent-stroke);
+}
+.pane-head {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--fluent-stroke);
+}
+.pane-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.pane-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.pane-tag {
+  font-size: 11px;
+  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+.pane-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 10px 16px;
+}
+
+/* ─── 字段库 ─── */
+.pal-group {
+  margin-bottom: 12px;
+}
+.pal-group-tx {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  padding: 4px 6px;
+  letter-spacing: 0.04em;
+}
+.pal-item {
   width: 100%;
-  max-width: 560px;
-  margin: 8px auto 0;
-  padding-bottom: 24px;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  text-align: left;
+  padding: 8px;
+  margin-bottom: 3px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: grab;
+  transition:
+    background-color var(--d1) var(--fluent-ease),
+    border-color var(--d1) var(--fluent-ease);
 }
-.empty {
-  padding: 56px 0;
+.pal-item:hover:not(:disabled) {
+  background: var(--rail-item-hover);
+  border-color: var(--fluent-stroke);
+}
+.pal-item:active:not(:disabled) {
+  cursor: grabbing;
+}
+.pal-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.pal-ic {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--text);
+  background: var(--rail-item-hover);
+}
+.pal-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.pal-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-strong);
+  line-height: 1.35;
+}
+.pal-desc {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* ─── 画布 ─── */
+.canvas-wrap {
+  flex: 1;
+  min-width: 0;
+  background: var(--app-bg);
+}
+.canvas-scroll {
+  height: 100%;
+  overflow-y: auto;
+  padding: 20px 24px 28px;
+}
+.drop-empty {
+  height: 100%;
+  min-height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.empty-card {
+  width: 100%;
+  max-width: 520px;
+  padding: 48px 24px;
+  background: var(--surface);
+  border: 1px dashed var(--stroke-strong);
+  border-radius: 8px;
+  text-align: center;
+}
+.empty-tip {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.sheet {
+  max-width: 760px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--fluent-stroke);
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+  padding: 18px 22px 22px;
+}
+.sheet-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--fluent-stroke);
+}
+.sheet-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+.sheet-sub {
+  font-size: 11.5px;
+  color: var(--text-dim);
 }
 .row {
   display: flex;
   gap: 10px;
 }
 .gap {
-  height: 12px;
-  margin: 0 8px;
+  height: 10px;
+  margin: 0 4px;
   border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.gap.on {
-  height: 14px;
 }
 .gap.on::before {
   content: '';
+  display: block;
   width: 100%;
   height: 3px;
   border-radius: 2px;
   background: var(--accent);
 }
 .field-card {
+  position: relative;
   flex: 1;
   min-width: 0;
   background: var(--surface);
-  border: 1px solid #e9ebf1;
-  border-radius: 12px;
-  padding: 14px;
+  border: 1px solid var(--fluent-stroke);
+  border-radius: 7px;
+  padding: 12px 14px;
   cursor: pointer;
   transition:
     border-color var(--d1) var(--fluent-ease),
     box-shadow var(--d1) var(--fluent-ease),
+    background-color var(--d1) var(--fluent-ease),
     opacity var(--d1) var(--fluent-ease);
 }
 .field-card:hover {
-  border-color: #d8dce6;
-  box-shadow: 0 4px 14px rgba(31, 35, 41, 0.06);
+  border-color: var(--stroke-strong);
+  background: color-mix(in srgb, var(--accent) 2%, var(--surface));
 }
-.field-card.second {
-  margin-left: 0;
+.field-card.selected {
+  border-color: var(--accent-ink);
+  box-shadow: 0 0 0 1px var(--accent-ink);
 }
 .field-card.over {
   border-color: var(--accent-ink);
-  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent-ink) 50%, transparent);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent-ink) 55%, transparent);
 }
 .field-card.dragging {
   opacity: 0.35;
 }
+.drag-handle {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-dim);
+  opacity: 0;
+  cursor: grab;
+  user-select: none;
+  transition: opacity var(--d1) var(--fluent-ease);
+}
+.field-card:hover .drag-handle {
+  opacity: 0.7;
+}
 .half-slot {
   flex: 1;
   min-width: 0;
-  border: 1px dashed #d6d9e0;
-  border-radius: 12px;
+  border: 1px dashed var(--stroke-strong);
+  border-radius: 7px;
   background: rgba(31, 35, 41, 0.02);
-  color: #b6bac3;
+  color: var(--text-dim);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font-size: 18px;
   cursor: pointer;
   transition:
     border-color var(--d1) var(--fluent-ease),
@@ -704,143 +1025,74 @@ async function save(): Promise<void> {
   color: var(--accent-ink);
   background: color-mix(in srgb, var(--accent) 7%, var(--surface));
 }
-.add-btn {
-  width: 100%;
-  margin-top: 12px;
-  padding: 14px;
-  border: 1px dashed #d2d6e0;
-  border-radius: 12px;
-  background: #fafbfc;
-  color: #8a909c;
-  font-size: 13px;
-  cursor: pointer;
-  transition:
-    border-color var(--d1) var(--fluent-ease),
-    color var(--d1) var(--fluent-ease);
-}
-.add-btn:hover {
-  border-color: var(--accent-ink);
-  color: var(--accent-ink);
-}
 
-/* ─── 类型选择 ─── */
-.picker {
-  width: 560px;
-  max-width: 94vw;
-  max-height: 82vh;
-  overflow-y: auto;
-  background: var(--surface);
-  border-radius: 16px;
-  padding: 20px 22px;
+/* ─── 属性面板 ─── */
+.props-empty {
+  padding: 16px 18px;
 }
-.picker h3 {
-  font-size: 16px;
-  margin-bottom: 14px;
-}
-.type-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.type-card {
-  text-align: left;
-  background: #f6f7f9;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  padding: 12px;
-  cursor: pointer;
-  transition:
-    border-color var(--d1) var(--fluent-ease),
-    background-color var(--d1) var(--fluent-ease);
-}
-.type-card:hover:not(:disabled) {
-  border-color: var(--accent-ink);
-  background: var(--surface);
-}
-.type-card:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.type-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-.type-ic {
-  color: #5b616c;
-}
-.type-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-strong);
-}
-.type-desc {
+.props-empty p {
   font-size: 12px;
-  line-height: 1.4;
-  color: #9aa0ac;
-  min-height: 33px;
-}
-
-/* ─── 字段配置 ─── */
-.cfg {
-  width: 480px;
-  max-width: 94vw;
-  max-height: 86vh;
-  overflow-y: auto;
-  background: var(--surface);
-  border-radius: 16px;
-  padding: 20px 22px;
-}
-.cfg h3 {
-  font-size: 16px;
-  margin-bottom: 16px;
-}
-.cfg-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  line-height: 1.6;
+  color: var(--text);
   margin-bottom: 12px;
 }
-.cfg-cap {
-  font-size: 13px;
-  color: #5b616c;
-  width: 84px;
-  flex-shrink: 0;
+.props-empty ul {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.cfg-row .n-input {
-  flex: 1;
+.props-empty li {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
 }
-.switch-row {
+.prop-sec {
+  margin-bottom: 14px;
+}
+.prop-lab {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.prop-row {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--fluent-stroke);
+  margin-bottom: 8px;
 }
-.switch-text {
+.prop-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.switch-text .cfg-cap {
-  width: auto;
+.prop-text .prop-lab {
+  margin-bottom: 0;
 }
-.switch-sub {
-  font-size: 11.5px;
-  color: #a8adba;
-}
-.cfg-icon-block {
-  margin-bottom: 14px;
+.prop-sub {
+  font-size: 11px;
+  color: var(--text-dim);
 }
 .icon-grid {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 7px;
-  margin-top: 8px;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  max-height: 208px;
+  overflow-y: auto;
+  padding: 2px;
 }
 .icon-cell {
   aspect-ratio: 1;
-  border: 1px solid #eef0f4;
-  border-radius: 9px;
-  background: #f7f8fa;
-  color: #5b616c;
+  border: 1px solid var(--fluent-stroke);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -848,54 +1100,47 @@ async function save(): Promise<void> {
   transition: all var(--d1) var(--fluent-ease);
 }
 .icon-cell:hover {
-  border-color: #cfd4de;
+  border-color: var(--stroke-strong);
+  background: var(--rail-item-hover);
 }
 .icon-cell.on {
   background: var(--accent);
   border-color: var(--accent-ink);
   color: var(--on-accent);
 }
-.cfg-opt-block {
-  margin-bottom: 16px;
-}
 .opt-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 8px 0;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 .opt-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
-  color: #4b5563;
-  background: #f4f5f8;
-  border: 1px solid #eceef2;
-  border-radius: 7px;
-  padding: 3px 8px 3px 10px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--rail-item-hover);
+  border: 1px solid var(--fluent-stroke);
+  border-radius: 5px;
+  padding: 3px 6px 3px 9px;
 }
 .opt-x {
   border: none;
   background: none;
-  color: #9aa0ac;
+  color: var(--text-dim);
   cursor: pointer;
   font-size: 10px;
   padding: 0;
 }
+.opt-x:hover {
+  color: #e04f5f;
+}
 .opt-add {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
-.cfg-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 18px;
-}
-.cfg-footer-right {
-  display: flex;
-  gap: 8px;
-  margin-left: auto;
+.prop-delete {
+  margin-top: 20px;
 }
 </style>

@@ -148,7 +148,7 @@ onMounted(async () => {
             </svg>
           </span>
           <span class="tc-text">
-            <span class="tc-name">电子书阅读</span>
+            <span class="tc-name">阅读器</span>
             <span class="tc-desc">{{ busy === 'reader' ? '正在打开…' : '阅读 EPUB / PDF / TXT 等书籍' }}</span>
           </span>
         </button>
@@ -223,7 +223,7 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div v-if="!cloudReady" class="hint">云端 OCR 未配置，OCR 暂不可用（可在设置中配置或改用本地 OCR）</div>
+    <div v-if="!cloudReady" class="hint">当前OCR配置暂不可用，请重新尝试</div>
 
     <!-- OCR 结果 -->
     <div v-if="resultKind === 'ocr'" class="result">
