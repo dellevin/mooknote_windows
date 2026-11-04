@@ -136,6 +136,12 @@ const router = createRouter({
       name: 'reader',
       component: () => import('@/pages/reader/ReaderWindowPage.vue'),
       meta: { bare: true }
+    },
+    {
+      // 主窗口（工具栏）内嵌阅读器：复用同一书架组件，渲染在应用外壳内
+      path: '/reader-embed',
+      name: 'reader-embed',
+      component: () => import('@/pages/reader/ReaderWindowPage.vue')
     }
   ]
 })

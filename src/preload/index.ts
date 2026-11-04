@@ -659,6 +659,8 @@ const api = {
       ipcRenderer.invoke('reader:rename', id, { title, author }),
     openBook: (id: string): Promise<boolean> =>
       ipcRenderer.invoke('reader:open-book', id),
+    bookUrl: (id: string): Promise<string | null> =>
+      ipcRenderer.invoke('reader:book-url', id),
     backShelf: (): Promise<boolean> => ipcRenderer.invoke('reader:back-shelf'),
     pickCover: (id: string): Promise<ReaderBook | null> =>
       ipcRenderer.invoke('reader:pick-cover', id),
@@ -752,6 +754,31 @@ const api = {
   }
 }
 
-contextBridge.exposeInMainWorld('mook', api)
-
 export type MookApi = typeof api
+
+// 主窗口内嵌阅读器时，foliate reader.html 跑在本地 iframe 子 frame 里。
+// 子 frame 只暴露阅读页所需的最小桥（读偏好、进度/书签、宿主事件），
+// 不暴露笔记/数据库/窗口控制等完整 API，避免注入到其它第三方 iframe。
+function exposeReaderFrame(): void {
+  const reader = {
+    saveProgress: api.reader.saveProgress,
+    annotations: api.reader.annotations,
+    toggleBookmark: api.reader.toggleBookmark,
+    removeBookmark: api.reader.removeBookmark,
+    onHostEvent: api.reader.onHostEvent
+  }
+  contextBridge.exposeInMainWorld('mook', {
+    prefs: {
+      get: api.prefs.get,
+      set: api.prefs.set
+    },
+    reader,
+    readerHost: api.readerHost
+  })
+}
+
+if (process.isMainFrame) {
+  contextBridge.exposeInMainWorld('mook', api)
+} else if (/^https?:\/\/127\.0\.0\.1:\d+\/reader\.html(\?|$)/.test(window.location.href)) {
+  exposeReaderFrame()
+}

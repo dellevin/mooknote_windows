@@ -127,11 +127,10 @@ export const DEFAULT_STYLE: ReaderStyle = {
   fontWeight: 400
 }
 
-// 打开某本书：窗口整页切换到 foliate-js reader.html（含书 id 与续读 cfi）
-export async function openBookInWindow(bookId: string): Promise<boolean> {
-  const win = openReaderWindow()
+// 构建某本书的 foliate-js reader.html 地址（独立窗口与主窗口内嵌 iframe 共用）
+export async function buildBookUrl(bookId: string): Promise<string | null> {
   const filePath = getBookFilePath(bookId)
-  if (!filePath) return false
+  if (!filePath) return null
 
   const progress = getProgress(bookId)
   const port = await startReaderServer()
@@ -179,6 +178,14 @@ export async function openBookInWindow(bookId: string): Promise<boolean> {
     readingRules: JSON.stringify({ convertChineseMode: 'none', bionicReadingMode: false })
   })
 
-  await win.loadURL(`http://127.0.0.1:${port}/reader.html?${params.toString()}`)
+  return `http://127.0.0.1:${port}/reader.html?${params.toString()}`
+}
+
+// 打开某本书：窗口整页切换到 foliate-js reader.html（含书 id 与续读 cfi）
+export async function openBookInWindow(bookId: string): Promise<boolean> {
+  const win = openReaderWindow()
+  const url = await buildBookUrl(bookId)
+  if (!url) return false
+  await win.loadURL(url)
   return true
 }

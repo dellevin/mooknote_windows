@@ -4,6 +4,7 @@ import {
   openReaderWindow,
   focusReaderWindow,
   openBookInWindow,
+  buildBookUrl,
   backToShelf,
   isReaderOpen,
   closeReaderWindow
@@ -109,6 +110,11 @@ export function registerReaderIpc(): void {
   // 书架打开某本书 → 窗口切换到 foliate-js 阅读页
   ipcMain.handle('reader:open-book', (_e, id: string): Promise<boolean> =>
     openBookInWindow(id)
+  )
+
+  // 主窗口内嵌模式：仅取阅读页 URL，由渲染层在 iframe 中承载（不弹窗）
+  ipcMain.handle('reader:book-url', (_e, id: string): Promise<string | null> =>
+    buildBookUrl(String(id))
   )
 
   // foliate 阅读页返回书架
@@ -263,9 +269,10 @@ export function registerReaderIpc(): void {
     }
   })
 
-  // foliate-js 运行时事件：转发给同窗口主 frame（阅读页 app.js 监听）
+  // foliate-js 运行时事件：定向回发给消息来源的 frame（独立窗是主 frame，
+  // 主窗口内嵌时是 reader iframe 子 frame；用 webContents.send 只会到主 frame，
+  // 子 frame 收不到，故必须用 senderFrame.send）。
   ipcMain.on('reader:event', (e, name: string, data: unknown) => {
-    const win = BrowserWindow.fromWebContents(e.sender)
-    win?.webContents.send('reader:host-event', name, data)
+    e.senderFrame?.send('reader:host-event', name, data)
   })
 }

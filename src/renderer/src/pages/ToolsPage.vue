@@ -1,8 +1,13 @@
 <script setup lang="ts">
 // 「探索 - 功能」：在主窗口内直接发起 OCR / 截屏 / 取色，结果在本页展示。
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { NModal } from 'naive-ui'
 import type { OcrLine, PickedColor } from '@shared/types'
+
+const router = useRouter()
+// 阅读器打开方式：embed=主窗口工具栏内嵌；window=独立窗口
+const readerEmbed = ref(true)
 
 function closeResult(): void {
   resultKind.value = ''
@@ -59,6 +64,9 @@ async function bindHide(key: string, refV: { value: boolean }): Promise<void> {
 }
 function onHideToggle(key: string, v: boolean): void {
   void window.mook.prefs.set(key, v)
+}
+function onReaderEmbedToggle(v: boolean): void {
+  void window.mook.prefs.set('readerEmbed', v)
 }
 
 const resultText = computed(() => lines.value.map((l) => l.text).join('\n'))
@@ -121,6 +129,10 @@ async function startColor(): Promise<void> {
 
 async function openReader(): Promise<void> {
   if (busy.value) return
+  if (readerEmbed.value) {
+    router.push('/reader-embed')
+    return
+  }
   busy.value = 'reader'
   try {
     await window.mook.reader.open()
@@ -197,6 +209,7 @@ onMounted(async () => {
   await bindHide('hideMainOnOcr', hideOcr)
   await bindHide('hideMainOnShot', hideShot)
   await bindHide('hideMainOnColor', hideColor)
+  readerEmbed.value = (await window.mook.prefs.get<boolean>('readerEmbed', true)) !== false
   await loadColorHistory()
   try {
     const cfg = await window.mook.ocr.cloudConfig()
@@ -223,9 +236,16 @@ onMounted(async () => {
           </span>
           <span class="tc-text">
             <span class="tc-name">阅读器</span>
-            <span class="tc-desc">{{ busy === 'reader' ? '正在打开…' : '阅读 EPUB / PDF / TXT 等书籍' }}</span>
+            <span class="tc-desc">{{ readerEmbed ? '在工具栏内打开书架' : busy === 'reader' ? '正在打开…' : '在新窗口中阅读 EPUB / PDF / TXT' }}</span>
           </span>
         </button>
+        <label class="tc-opt" @click.stop>
+          <span>在工具栏内打开（关闭则新开窗口）</span>
+          <span class="switch">
+            <input type="checkbox" v-model="readerEmbed" @change="onReaderEmbedToggle(readerEmbed)" />
+            <span class="track"></span>
+          </span>
+        </label>
       </div>
 
       <div class="tool-card" :class="{ disabled: !!busy || !cloudReady }">

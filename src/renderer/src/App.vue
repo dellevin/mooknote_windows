@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { darkTheme, NModal, zhCN, dateZhCN } from 'naive-ui'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { toImgUrl } from '@/utils/image'
 import { applyFont, currentFontStack } from '@/utils/theme'
 import { currentSkin, initSkin } from '@/utils/skin'
@@ -141,17 +141,29 @@ type NavGroup = { title: string; items: NavItem[] }
 
 const customModules = ref<CustomModule[]>([])
 
+const router = useRouter()
 // 独立阅读器窗口是否正在运行（侧栏微信式“打开中”入口）
 const readerRunning = ref(false)
+// 主窗口内嵌阅读器（工具栏内打开）是否处于当前路由
+const readerEmbedded = computed(() => router.currentRoute.value.path === '/reader-embed')
 async function refreshReaderRunning(): Promise<void> {
   readerRunning.value = await window.mook.reader.isOpen()
 }
 function focusReader(): void {
+  if (readerEmbedded.value) {
+    router.push('/reader-embed')
+    return
+  }
   void window.mook.reader.focus()
 }
 function killReader(e: MouseEvent): void {
   e.stopPropagation()
   e.preventDefault()
+  if (readerEmbedded.value) {
+    // 内嵌模式：× 退出阅读器，回到工具栏
+    router.push('/tools')
+    return
+  }
   void window.mook.reader.closeWindow()
 }
 
@@ -216,8 +228,14 @@ const navGroups = computed<NavGroup[]>(() =>
     {
       title: '',
       items: [
-        ...(readerRunning.value
-          ? [{ label: '阅读器', to: '/reader-running', icon: I.book, accent: '#16a34a', runningReader: true }]
+        ...(readerRunning.value || readerEmbedded.value
+          ? [{
+              label: '阅读器',
+              to: readerEmbedded.value ? '/reader-embed' : '/reader-running',
+              icon: I.book,
+              accent: '#16a34a',
+              runningReader: true
+            }]
           : []),
         { label: '设置', to: '/settings', icon: I.gear }
       ]
@@ -436,13 +454,12 @@ function onRailPointerUp(): void {
                   <div v-if="group.title" class="nav-group-title">{{ group.title }}</div>
                   <template v-for="item in group.items" :key="item.to">
                   <button
-                    v-if="item.runningReader"
+                    v-if="item.runningReader && item.to === '/reader-running'"
                     type="button"
                     class="rail-item rail-item-running"
                     title="点击切换到阅读器"
                     @click="focusReader"
                   >
-                    <span class="rail-running-dot"></span>
                     <svg
                       class="rail-icon"
                       viewBox="0 0 24 24"
@@ -465,6 +482,7 @@ function onRailPointerUp(): void {
                     v-else
                     :to="item.to"
                     class="rail-item"
+                    :class="{ 'rail-item-running': item.runningReader }"
                     exact-active-class="active"
                   >
                     <ModuleIcon
@@ -485,6 +503,17 @@ function onRailPointerUp(): void {
                       v-html="item.icon"
                     />
                     <span class="rail-label">{{ item.label }}</span>
+                    <span
+                      v-if="item.runningReader"
+                      class="rail-running-close"
+                      title="退出内嵌阅读器"
+                      @click.prevent="killReader($event)"
+                    >
+                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
+                        stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                        <path d="M18 6 6 18M6 6l12 12" />
+                      </svg>
+                    </span>
                   </router-link>
                   </template>
                 </div>
@@ -844,20 +873,9 @@ body.rail-resizing {
   text-align: left;
   color: #16a34a;
 }
-.rail-running-dot {
-  flex-shrink: 0;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #16a34a;
-  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18);
-  animation: rail-dot-pulse 2s ease-in-out infinite;
-}
-@keyframes rail-dot-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18); }
-  50% { box-shadow: 0 0 0 5px rgba(22, 163, 74, 0.08); }
-}
 .rail-item-running .rail-label { font-weight: 600; }
+/* 内嵌阅读器处于当前路由时会叠加 .active，统一仍用运行绿，避免变成黑色 */
+.rail-item-running.active { color: #16a34a; }
 .rail-running-close {
   margin-left: auto;
   flex-shrink: 0;

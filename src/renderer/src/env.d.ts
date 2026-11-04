@@ -63,7 +63,10 @@ import type {
   IncSyncProgress,
   OcrLine,
   EngineScanResult,
-  PickedColor
+  PickedColor,
+  ReaderBook,
+  ReaderCategory,
+  ReaderAnnotation
 } from '@shared/types'
 
 interface MediaQuery {
@@ -493,6 +496,58 @@ interface MookApi {
     clearCache: () => Promise<{ bytes: number; orphanImages: number; emptyDirs: number }>
     cleanEmptyDirs: () => Promise<{ removed: number }>
     purgeDeleted: () => Promise<{ rows: number; tables: number }>
+  }
+  reader: {
+    open: () => Promise<boolean>
+    focus: () => Promise<boolean>
+    isOpen: () => Promise<boolean>
+    closeWindow: () => Promise<boolean>
+    onStateChanged: (cb: (open: boolean) => void) => void
+    list: () => Promise<ReaderBook[]>
+    import: () => Promise<{ imported: number; failed: string[] }>
+    delete: (id: string) => Promise<boolean>
+    rename: (
+      id: string,
+      title: string,
+      author: string
+    ) => Promise<ReaderBook | null>
+    openBook: (id: string) => Promise<boolean>
+    bookUrl: (id: string) => Promise<string | null>
+    backShelf: () => Promise<boolean>
+    pickCover: (id: string) => Promise<ReaderBook | null>
+    saveProgress: (payload: {
+      bookId: string
+      cfi: string
+      percentage: number
+      chapterTitle: string | null
+    }) => Promise<boolean>
+    annotations: (bookId: string) => Promise<ReaderAnnotation[]>
+    toggleBookmark: (
+      bookId: string,
+      payload: {
+        remove: boolean
+        detail: { cfi: string; content: string; percentage: number }
+        chapterTitle: string | null
+      }
+    ) => Promise<{ id: string; action: 'added' | 'removed' }>
+    removeBookmark: (bookId: string, cfi: string) => Promise<boolean>
+    listCategories: () => Promise<ReaderCategory[]>
+    addCategory: (
+      name: string
+    ) => Promise<{ ok: boolean; category?: ReaderCategory; error?: string }>
+    renameCategory: (id: string, name: string) => Promise<boolean>
+    deleteCategory: (id: string) => Promise<boolean>
+    setCategoryHidden: (id: string, hidden: boolean) => Promise<boolean>
+    reorderCategories: (orderedIds: string[]) => Promise<boolean>
+    exportBackup: () => Promise<{ ok: boolean; path?: string; error?: string }>
+    importBackup: () => Promise<{ ok: boolean; books?: number; error?: string }>
+    setBookCategories: (bookId: string, categoryIds: string[]) => Promise<boolean>
+    onHostEvent: (
+      cb: (name: string, data: unknown) => void
+    ) => () => void
+  }
+  readerHost: {
+    event: (name: string, data: unknown) => void
   }
   window: {
     minimize: () => void

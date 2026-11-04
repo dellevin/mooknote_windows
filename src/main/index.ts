@@ -142,7 +142,10 @@ function createWindow(): BrowserWindow {
       preload: path.join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // 工具栏内嵌阅读器：foliate 阅读页在主窗口的同源本地 iframe 中运行，
+      // 需要向子 frame 注入 preload（reader 桥）。preload 内按 frame/来源做了隔离。
+      nodeIntegrationInSubFrames: true
     }
   })
 

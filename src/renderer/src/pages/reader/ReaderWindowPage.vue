@@ -2,8 +2,21 @@
 // 电子书阅读独立窗口：书架视图。
 // 打开书时由主进程把整个窗口切换到 foliate-js 阅读页（reader.html），
 // 返回书架时再切回本页，因此本页不内嵌阅读 iframe。
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import type { ReaderBook, ReaderCategory } from '@shared/types'
+
+// meta.bare=true 为独立阅读窗口；/reader-embed 无 bare，内嵌在主窗口工具栏内容区
+const route = useRoute()
+const embedded = computed(() => route.meta.bare !== true)
+
+// 内嵌模式点书：在本页 iframe 覆盖层里承载 foliate 阅读页（独立窗模式不用）
+const readingUrl = ref('')
+function onReaderMessage(e: MessageEvent): void {
+  if (e.data && typeof e.data === 'object' && e.data.type === 'mook-reader-back') {
+    readingUrl.value = ''
+  }
+}
 
 const books = ref<ReaderBook[]>([])
 const categories = ref<ReaderCategory[]>([])
@@ -348,6 +361,15 @@ async function importBooks(): Promise<void> {
 }
 
 async function openBook(book: ReaderBook): Promise<void> {
+  if (embedded.value) {
+    const base = await window.mook.reader.bookUrl(book.id)
+    if (!base) {
+      showToast('书籍文件不存在')
+      return
+    }
+    readingUrl.value = `${base}&embedded=true`
+    return
+  }
   const ok = await window.mook.reader.openBook(book.id)
   if (!ok) showToast('书籍文件不存在')
 }
@@ -509,14 +531,20 @@ function winClose(): void {
 onMounted(() => {
   void loadBooks()
   void loadCategories()
-  window.mook.window.onMaximizedChange((v: boolean) => (isMaximized.value = v))
+  window.addEventListener('message', onReaderMessage)
+  if (!embedded.value) {
+    window.mook.window.onMaximizedChange((v: boolean) => (isMaximized.value = v))
+  }
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('message', onReaderMessage)
 })
 </script>
 
 <template>
-  <div class="reader-win">
-    <!-- 自绘标题栏：阅读窗口为无边框窗口 -->
-    <div class="reader-titlebar">
+  <div class="reader-win" :class="{ embedded }">
+    <!-- 自绘标题栏：仅独立无边框窗口需要；内嵌在主窗口时隐藏 -->
+    <div v-if="!embedded" class="reader-titlebar">
       <div class="rt-drag"></div>
       <div class="rt-controls">
         <button class="rt-btn" title="最小化" @click="winMinimize">
@@ -1078,6 +1106,14 @@ onMounted(() => {
     <Transition name="toast">
       <div v-if="toast" class="toast">{{ toast }}</div>
     </Transition>
+
+    <!-- 内嵌阅读层：foliate 阅读页在本地 iframe 中全屏覆盖书架 -->
+    <iframe
+      v-if="embedded && readingUrl"
+      class="embed-reader"
+      :src="readingUrl"
+      title="阅读"
+    ></iframe>
   </div>
 </template>
 
@@ -1091,6 +1127,24 @@ onMounted(() => {
   user-select: none;
   display: flex;
   flex-direction: column;
+}
+
+/* 内嵌在主窗口内容区：不固定到整窗，填满内容卡片；iframe 阅读层相对它定位 */
+.reader-win.embedded {
+  position: relative;
+  inset: auto;
+  height: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.embed-reader {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #f5f1e8;
 }
 
 /* ---- 自绘标题栏 ---- */

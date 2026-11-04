@@ -18,6 +18,8 @@
   }
   const bookId = readParam('bookId', '')
   const importing = readParam('importing', false)
+  // 内嵌模式：foliate 页跑在主窗口的 iframe 中（工具栏内阅读），无独立窗口控件
+  const embedded = readParam('embedded', false)
   // 无历史进度：foliate 对漫画(CBZ)在空 cfi 时会 next() 到末页，需加载后回到开头
   const hasInitialCfi = !!readParam('initialCfi', '')
   let toc = []
@@ -276,9 +278,16 @@
     border-radius: 99px; border: 2px solid transparent; background-clip: content-box; }
   *::-webkit-scrollbar-track { background: transparent; }
   `
+  // 内嵌在主窗口 iframe 时：隐藏自绘窗口按钮与拖拽带，顶栏右侧不留窗口位
+  const embeddedCss = `
+  body.mn-embedded #mn-winbtns,
+  body.mn-embedded #mn-dragstrip { display: none !important; }
+  body.mn-embedded #mn-bar { padding-right: 10px; }
+  `
   const styleEl = document.createElement('style')
-  styleEl.textContent = css
+  styleEl.textContent = css + (embedded ? embeddedCss : '')
   document.head.appendChild(styleEl)
+  if (embedded) document.body.classList.add('mn-embedded')
 
   const ICON = {
     back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
@@ -558,15 +567,24 @@
   ui.querySelectorAll('[data-close]').forEach((b) => {
     b.onclick = () => closePanels()
   })
-  $('mn-back').onclick = () => window.mook.reader.backShelf()
+  $('mn-back').onclick = () => {
+    if (embedded) {
+      // 内嵌：通知父窗口关闭阅读 iframe、回到内嵌书架（跨源用 postMessage）
+      window.parent.postMessage({ type: 'mook-reader-back' }, '*')
+    } else {
+      window.mook.reader.backShelf()
+    }
+  }
 
-  // 自绘窗口控件（无边框窗口）
-  $('mn-win-min').onclick = () => window.mook.window.minimize()
-  $('mn-win-max').onclick = () => window.mook.window.toggleMaximize()
-  $('mn-win-close').onclick = () => window.mook.window.close()
-  window.mook.window.onMaximizedChange((max) => {
-    $('mn-win-max').innerHTML = max ? ICON.winRestore : ICON.winMax
-  })
+  // 自绘窗口控件（无边框窗口）。内嵌模式没有独立窗口，跳过。
+  if (!embedded) {
+    $('mn-win-min').onclick = () => window.mook.window.minimize()
+    $('mn-win-max').onclick = () => window.mook.window.toggleMaximize()
+    $('mn-win-close').onclick = () => window.mook.window.close()
+    window.mook.window.onMaximizedChange((max) => {
+      $('mn-win-max').innerHTML = max ? ICON.winRestore : ICON.winMax
+    })
+  }
   $('mn-bookmark-btn').onclick = async () => {
     // foliate 在每次 relocate 时给出当前页是否已有书签（CFI 精确到页）
     const cfi = lastLocation?.bookmark?.cfi
