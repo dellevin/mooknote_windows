@@ -3,9 +3,14 @@ import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { prefs } from '../prefs'
 
+// 与 Flutter 端 ServerConfig 对齐：开发走局域网，生产走线上
+const BASE_URL = import.meta.env.DEV
+  ? 'http://192.168.31.48:27047'
+  : 'http://api.mooknote.iletter.top'
+
 // 与 Flutter 端 usage_stats_service 对齐的匿名心跳统计。
 // 前台每 60s POST 一次 /api/heartbeat，服务端按心跳条数折算当日使用分钟数。
-const HEARTBEAT_URL = 'http://api.mooknote.iletter.top/api/heartbeat'
+const HEARTBEAT_URL = `${BASE_URL}/api/heartbeat`
 const HEARTBEAT_INTERVAL_MS = 60 * 1000
 const REQUEST_TIMEOUT_MS = 5000
 const DEVICE_ID_KEY = 'deviceId'
