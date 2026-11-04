@@ -1,22 +1,21 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { NButton, NEmpty, NSpin, NTag, useDialog } from 'naive-ui'
 import type { Playlist } from '@shared/types'
 import { PLAYLIST_TYPE_LABELS } from '@shared/types'
 import PlaylistCover from '@/components/playlist/PlaylistCover.vue'
 import PlaylistFormModal from '@/components/playlist/PlaylistFormModal.vue'
-import PlaylistDetailModal from '@/components/playlist/PlaylistDetailModal.vue'
 
 interface PlaylistCard extends Playlist {
   covers: (string | null)[]
 }
 
+const router = useRouter()
 const playlists = ref<PlaylistCard[]>([])
 const loading = ref(false)
 const formShow = ref(false)
 const editPlaylist = ref<Playlist | null>(null)
-const detailShow = ref(false)
-const detailId = ref<string | null>(null)
 
 const dialog = useDialog()
 
@@ -41,8 +40,7 @@ function openCreate(): void {
   formShow.value = true
 }
 function openCard(p: Playlist): void {
-  detailId.value = p.id
-  detailShow.value = true
+  void router.push(`/playlists/${p.id}`)
 }
 
 // 多选批量删除（与影视/书籍/游戏页一致，移入回收站可恢复）
@@ -140,7 +138,6 @@ function batchDelete(): void {
     </NSpin>
 
     <PlaylistFormModal v-model:show="formShow" :playlist="editPlaylist" @saved="load" />
-    <PlaylistDetailModal v-model:show="detailShow" :id="detailId" @changed="load" />
 
     <Teleport to="body">
       <div v-if="selectMode" class="select-bar">

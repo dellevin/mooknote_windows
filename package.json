@@ -1,6 +1,6 @@
 {
   "name": "mooknote-windows",
-  "version": "0.1.4-beta",
+  "version": "0.1.5",
   "description": "MookNote Windows (Electron + Vue)",
   "main": "./out/main/index.js",
   "author": "MookNote",

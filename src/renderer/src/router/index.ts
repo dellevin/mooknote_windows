@@ -39,6 +39,11 @@ const router = createRouter({
       component: () => import('@/pages/PlaylistsPage.vue')
     },
     {
+      path: '/playlists/:id',
+      name: 'playlist-detail',
+      component: () => import('@/pages/PlaylistDetailPage.vue')
+    },
+    {
       path: '/tags',
       name: 'tags',
       component: () => import('@/pages/TagsPage.vue')
