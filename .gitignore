@@ -3,3 +3,7 @@ out/
 dist/
 *.log
 .DS_Store
+
+# OCR 引擎二进制体积过大（约 400MB），不纳入版本管理
+/resources/PaddleOCR-json/
+/resources/RapidOCR-json/
