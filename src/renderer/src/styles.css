@@ -267,18 +267,16 @@ button:focus-visible {
   outline-offset: 1px;
 }
 
-/* 路由切换：轻微上移淡入，统一 Fluent 曲线 */
+/* 路由切换：淡入。原实现带上 translateY(8px)，会让页面首帧整体下移 8px 再回位
+   （观感即"抖动"），且位移会瞬时撑高滚动内容、闪一下滚动条，故改为纯不透明度过渡。 */
 .route-enter-active {
-  transition:
-    opacity var(--d2) var(--fluent-ease),
-    transform var(--d2) var(--fluent-ease);
+  transition: opacity var(--d2) var(--fluent-ease);
 }
 .route-leave-active {
   transition: opacity var(--d1) var(--fluent-ease);
 }
 .route-enter-from {
   opacity: 0;
-  transform: translateY(8px);
 }
 .route-leave-to {
   opacity: 0;

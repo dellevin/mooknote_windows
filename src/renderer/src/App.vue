@@ -900,6 +900,9 @@ body.rail-resizing {
   flex: 1;
   min-width: 0;
   overflow: auto;
+  /* 常驻滚动条槽位：列表从"不满一屏"变成"超出"时滚动条不再挤占宽度，
+     否则内容区会横向跳动十几像素，网格跟着重排（观感即"抖动"）。 */
+  scrollbar-gutter: stable;
   background: var(--content-bg);
   border: 1px solid var(--fluent-stroke);
   border-radius: 14px;
