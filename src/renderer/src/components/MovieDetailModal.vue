@@ -72,10 +72,11 @@ const tagFields: { key: 'directors' | 'writers' | 'actors' | 'genres'; label: st
   { key: 'actors', label: '主演' },
   { key: 'genres', label: '类型' }
 ]
-const STATUS_TYPE: Record<string, 'info' | 'success' | 'warning'> = {
+const STATUS_TYPE: Record<string, 'info' | 'success' | 'warning' | 'default'> = {
   want_to_watch: 'info',
   watching: 'success',
-  watched: 'warning'
+  watched: 'warning',
+  abandoned: 'default'
 }
 </script>
 

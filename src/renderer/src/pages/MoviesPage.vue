@@ -82,7 +82,8 @@ const tabs: { key: '' | MovieStatus; label: string }[] = [
   { key: '', label: '全部' },
   { key: 'want_to_watch', label: MOVIE_STATUS_LABELS.want_to_watch },
   { key: 'watching', label: MOVIE_STATUS_LABELS.watching },
-  { key: 'watched', label: MOVIE_STATUS_LABELS.watched }
+  { key: 'watched', label: MOVIE_STATUS_LABELS.watched },
+  { key: 'abandoned', label: MOVIE_STATUS_LABELS.abandoned }
 ]
 
 const sortOptions = Object.entries(MOVIE_SORT_LABELS).map(([value, label]) => ({
@@ -345,6 +346,10 @@ onMounted(() => {
 .tab-watched.active {
   background: rgba(22, 163, 74, 0.12);
   color: #16a34a;
+}
+.tab-abandoned.active {
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
 }
 .cnt {
   font-size: 11px;

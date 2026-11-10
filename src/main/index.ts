@@ -36,7 +36,6 @@ import { createBallWindow, registerFloatIpc } from './floatBall'
 import { registerReaderIpc } from './reader/ipcReader'
 import { openReaderDatabase } from './reader/db'
 import { downloadRemoteImage } from './services/onlineSearch'
-import { startHeartbeat } from './services/heartbeat'
 
 // 本地图片：mookimg:///<绝对路径>
 // 不能注册为 standard：standard 协议会按 host:port 解析，吞掉 Windows 盘符冒号
@@ -313,8 +312,6 @@ app.whenReady().then(() => {
   createTray(mainWin)
   // 桌面悬浮球：独立置顶小窗，主窗口最小化到托盘后仍可用
   createBallWindow()
-  // 匿名使用心跳（前台每 60s，服务端折算每日使用时长）
-  startHeartbeat(mainWin)
 
   app.on('activate', () => {
     const win = BrowserWindow.getAllWindows()[0]

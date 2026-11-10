@@ -568,6 +568,8 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  width: 104px;
+  min-width: 0;
   padding: 0;
   border: none;
   background: transparent;
@@ -607,6 +609,9 @@ onMounted(async () => {
   background: #f59e0b;
 }
 .tile-name {
+  display: block;
+  width: 100%;
+  min-width: 0;
   font-size: 12px;
   color: var(--text-strong);
   overflow: hidden;

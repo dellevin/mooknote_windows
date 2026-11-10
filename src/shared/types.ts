@@ -1,6 +1,6 @@
 // 与 Flutter data_models.dart 对齐的领域模型（camelCase），DAO 负责与 snake_case 行互转。
 
-export type MovieStatus = 'want_to_watch' | 'watching' | 'watched'
+export type MovieStatus = 'want_to_watch' | 'watching' | 'watched' | 'abandoned'
 
 export interface Movie {
   id: string
@@ -34,7 +34,8 @@ export type MovieInput = Omit<
 export const MOVIE_STATUS_LABELS: Record<MovieStatus, string> = {
   want_to_watch: '想看',
   watching: '在看',
-  watched: '已看'
+  watched: '已看',
+  abandoned: '弃看'
 }
 
 export const MOVIE_CATEGORY_LABELS: Record<string, string> = {
